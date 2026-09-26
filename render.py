@@ -7,9 +7,13 @@
 出力:
     ~/.agent/diagrams/grill-<topic>.html(1 題材 1 ファイル。URL 固定)
 
+印字: 出力パスと、統合ページの URL(<root>#<topic>。root は環境変数 PARALLEL_GRILL_URL、
+      無ければ http://localhost:8787/)。
+
 スキーマ(文字列は HTML として挿入される。<code>/<strong> 可。外部入力は入れない):
 {
   "topic": "slug", "title": "見出し", "intro": "リード文",
+  "kind": "plan"|"test-review"|"ui-check"?, "project": str?, "issue": int?,   # 統合ページの絞り込み用(省略時は topic/title から推定)
   "tree": [{"label": str, "status": "done"|"open", "note": str?, "children": [...]?}],
   "rounds": [{
      "round": 1, "label": "任意のタブ名"?, "status": "open"|"answered"|"info",
@@ -31,10 +35,15 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import sys
 from pathlib import Path
 
-OUT_DIR = Path.home() / ".agent" / "diagrams"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from state import resolve_root  # noqa: E402  (同じディレクトリの state.py)
+
+OUT_DIR = resolve_root()
+DEFAULT_DASHBOARD_ROOT = "http://localhost:8787/"
 
 CSS = """
 :root {
@@ -339,6 +348,9 @@ JS = """
       submitBtn.textContent = "送信済み";
       status.textContent = "送信しました ✓ AI が自動で処理を再開します";
       status.style.color = "var(--green)";
+      if (window.parent !== window) {  // 統合ページの iframe 内なら、親に知らせて一覧を即時更新させる
+        window.parent.postMessage({ type: "grill-submitted", topic: CONFIG.topic, round: CONFIG.openRound }, location.origin);
+      }
     }).catch(function (e) {
       submitBtn.disabled = false;
       submitBtn.textContent = "送信";
@@ -427,6 +439,13 @@ def render_round(r: dict) -> str:
     return "".join(parts)
 
 
+def dashboard_url(topic: str, root: str | None = None) -> str:
+    """統合ページで、この題材を開く URL。root は PARALLEL_GRILL_URL(子セッションに渡る)。"""
+    base = root if root is not None else os.environ.get("PARALLEL_GRILL_URL", "")
+    base = base.strip() or DEFAULT_DASHBOARD_ROOT
+    return f"{base.rstrip('/')}/#{topic}"
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         sys.exit("usage: render.py <topic>.json")
@@ -506,7 +525,7 @@ def main() -> None:
     out = OUT_DIR / f"grill-{topic}.html"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
-    print(f"{out}\nhttp://localhost:8787/grill-{topic}.html")
+    print(f"{out}\n{dashboard_url(topic)}")
 
 
 if __name__ == "__main__":

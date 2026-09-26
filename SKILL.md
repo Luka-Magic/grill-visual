@@ -30,6 +30,9 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
 2. **質問データ作成**: `~/.agent/diagrams/grill-data/<topic>.json` を書く
    (スキーマは `render.py` の docstring 参照。文字列は HTML として挿入されるので
    `<code>` / `<strong>` 可。ユーザー入力や外部データは埋め込まない)。
+   - 統合ページの絞り込み用に、任意で `"kind"`(`plan` / `test-review` / `ui-check`)・
+     `"project"`・`"issue"`(番号)を書ける。省略時は topic の接頭辞(`tr-` / `ui-`)と
+     title の `#N`、`<project>-<N>-` 形式の topic から推定される。
    - ラウンドはタブになる。過去ラウンドは `"status": "answered"` +
      `answer` / `answer_note` / `user_note` / `free_text_answer` で履歴化、
      現行ラウンドだけ `"status": "open"`。まとめタブは `"status": "info"`。
@@ -42,8 +45,11 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
 3. **レンダー**: `python3 ~/.claude/skills/grill-visual/render.py <topic>.json`
    → `~/.agent/diagrams/grill-<topic>.html`(1 題材 1 ファイル・URL 固定)。
 4. **配信**: `~/.claude/skills/grill-visual/serve.sh` を実行(冪等)。
-   `http://localhost:8787/` で配信される(127.0.0.1 限定・LAN 非公開)。
-5. **提示**: チャットに URL `http://localhost:8787/grill-<topic>.html` を書く。
+   `http://localhost:8787/` が統合ページ(全題材の一覧 + 選んだ質問票)として配信される
+   (127.0.0.1 限定・LAN 非公開。tailnet 経由は Tailscale serve が中継する)。
+5. **提示**: チャットには **render.py が印字した URL**(`<root>#<topic>`)をそのまま書く。
+   root は環境変数 `PARALLEL_GRILL_URL`(並列運用で子に渡る)、無ければ `http://localhost:8787/`。
+   単体の `grill-<topic>.html` も同じサーバーで開けるが、URL としては統合ページの方を出す。
    「送信ボタンで回答すると自動で再開する。コピー文字列・チャット直書きでも可」
    と短く添える。自由記述・選択肢外の回答を必ず歓迎する。質問ごとのメモ欄と
    画面下の全体自由記述欄があり、どちらも送信 JSON に載る。送信が成功すると
@@ -63,14 +69,41 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
    (用語の異議はその場で指摘・ADR は「戻しにくい/文脈なしでは不可解/実トレードオフ」
    の 3 条件が揃うときだけ)に従い、リポジトリにファイルを増やす前に置き場所の承認を取る。
 
+## 統合ページ(`http://localhost:8787/`)
+
+複数セッションが同時に質問票を出しても URL は 1 つで済むようにするページ。
+左に全題材の一覧、右に選んだ質問票(既存の `grill-<topic>.html` を iframe でそのまま表示)。
+`#<topic>` で選択するので、`<root>#<topic>` を共有すれば直接その質問票が開く。
+
+- **状態はファイルだけから導く**(`state.py`。サーバーにメモリ状態なし)
+  - 待ち: `status:"open"` のラウンドがあり `answers/<topic>-round-<N>.json` が無い
+  - 回答済み: open ラウンドの回答ファイルが既にある(AI が次ラウンドをまだ書いていない)
+  - 完了: open ラウンドが無い(info のまとめタブで終わっている)
+  - 読めない: JSON が壊れている(AI の書き換え途中など。次の取得で直る)
+- **フィルタ**: 状態 / 種類(計画・test-review・ui-check)/ プロジェクト / issue 番号 / 検索。
+  ブラウザの localStorage に保存される
+- **アーカイブ**(項目の「隠す」): `~/.agent/diagrams/.grill-dashboard.json` に保存。
+  「アーカイブ済みも表示」で戻せる
+- 3 秒ごとに `/api/state` を取得(タブが見えているときだけ)。タイトルに待ち件数が出る
+- 質問票の再読み込みは、送信後に AI が次ラウンドを出したとき・見ていた題材が新たに待ちになったときだけ自動。
+  それ以外の更新は上部に「再読み込み」を出すだけ(入力中の内容を消さない)
+
 ## 構成ファイル
 
 - `render.py` — driver(Python3 標準ライブラリのみ)。テンプレート・CSS・JS を内蔵
-- `server.py` — 配信 + `POST /submit`(ThreadingHTTPServer。127.0.0.1:8787)
+- `server.py` — 配信 + `POST /submit` + 統合ページ(`/`・`/api/state`・`/api/archive`)
+  (ThreadingHTTPServer。127.0.0.1:8787。`GRILL_ROOT` / `GRILL_PORT` はテスト用)
+- `state.py` — 題材ごとの状態算出(純粋関数)
+- `dashboard.html` — 統合ページ(単一ファイル。CSS・JS 内蔵)
 - `serve.sh` — サーバーの冪等起動(ポート衝突・二重起動を検知)
+- `tests/` — `uvx pytest -q tests`(state / server / render)
 
 ## トラブルシューティング(実際に踏んだもの)
 
+- **スキルを更新したのに統合ページや API が古い**: 常駐サーバーは起動時のコードのまま。
+  `pkill -f "grill-visual/server\.[p]y"; ~/.claude/skills/grill-visual/serve.sh` で入れ替える
+  (静的配信のみでメモリ状態は無いので、いつ再起動しても安全。送信中だったブラウザは
+  送信を 1 回やり直せば良い)。
 - **ページが開かない/固まる**: 旧実装のシングルスレッド HTTPServer はブラウザの
   keep-alive 接続 1 本で全リクエストが詰まった。ThreadingHTTPServer で解消済み。
   再発時は `pkill -f "grill-visual/server\.[p]y"` → `serve.sh`。
