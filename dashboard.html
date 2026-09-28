@@ -154,11 +154,7 @@ button, input, select { font: inherit; color: inherit; }
       <button type="button" class="chip on" data-v="answered">回答済み</button>
       <button type="button" class="chip on" data-v="done">完了</button>
     </div>
-    <div class="chips" data-filter="kind">
-      <button type="button" class="chip on" data-v="plan">計画</button>
-      <button type="button" class="chip on" data-v="test-review">test-review</button>
-      <button type="button" class="chip on" data-v="ui-check">ui-check</button>
-    </div>
+    <div class="chips" data-filter="kind" id="kinds"></div>
     <div class="row">
       <select id="project"><option value="">プロジェクト: すべて</option></select>
       <input id="issue" type="number" min="0" placeholder="#issue">
@@ -196,13 +192,13 @@ button, input, select { font: inherit; color: inherit; }
   var STORAGE_KEY = "grill-dashboard.filters";
   var STATE_RANK = { waiting: 0, answered: 1, error: 2, done: 3 };
   var STATE_LABEL = { waiting: "待ち", answered: "回答済み", done: "完了", error: "読めない" };
-  var KIND_LABEL = { plan: "計画", "test-review": "test-review", "ui-check": "ui-check" };
+  var UNSORTED_LABEL = "未分類";  // kind が無い題材。種類の意味はこのページでは決めない(出す側のスキルが宣言する)
 
   var $ = function (id) { return document.getElementById(id); };
   var els = {
     list: $("list"), frame: $("frame"), empty: $("empty"), notice: $("notice"), noticeText: $("notice-text"),
     project: $("project"), issue: $("issue"), q: $("q"), showArchived: $("show-archived"),
-    foot: $("side-foot"), topTitle: $("top-title"), topCount: $("top-count")
+    foot: $("side-foot"), topTitle: $("top-title"), topCount: $("top-count"), kinds: $("kinds")
   };
 
   var topics = [];          // /api/state の topics
@@ -217,7 +213,7 @@ button, input, select { font: inherit; color: inherit; }
 
   // ---------------------------------------------------------------- フィルタの保存
   function defaultFilters() {
-    return { state: ["waiting", "answered", "done"], kind: ["plan", "test-review", "ui-check"],
+    return { state: ["waiting", "answered", "done"], kindOff: [],  // kindOff = 隠す種類(新しい種類は自動で表示)
              project: "", issue: "", q: "", archived: false };
   }
   function loadFilters() {
@@ -238,11 +234,14 @@ button, input, select { font: inherit; color: inherit; }
   function saveFilters() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(filters)); } catch (e) { /* 保存できなくても動く */ }
   }
+  function chipOn(key, v) {
+    return key === "kind" ? filters.kindOff.indexOf(v) < 0 : filters[key].indexOf(v) >= 0;
+  }
   function applyFilterUi() {
     document.querySelectorAll(".chips").forEach(function (group) {
       var key = group.getAttribute("data-filter");
       group.querySelectorAll(".chip").forEach(function (chip) {
-        chip.classList.toggle("on", filters[key].indexOf(chip.getAttribute("data-v")) >= 0);
+        chip.classList.toggle("on", chipOn(key, chip.getAttribute("data-v")));
       });
     });
     els.q.value = filters.q;
@@ -264,7 +263,7 @@ button, input, select { font: inherit; color: inherit; }
     if (t.archived && !filters.archived) return false;
     var stateKey = t.state === "error" ? "waiting" : t.state;  // 読めないものは待ち扱いで見せる
     if (filters.state.indexOf(stateKey) < 0) return false;
-    if (filters.kind.indexOf(t.kind) < 0) return false;
+    if (filters.kindOff.indexOf(t.kind || "") >= 0) return false;
     if (filters.project && (t.project || "") !== filters.project) return false;
     if (filters.issue !== "" && String(t.issue) !== String(filters.issue)) return false;
     if (filters.q) {
@@ -283,7 +282,7 @@ button, input, select { font: inherit; color: inherit; }
     return iso ? iso.slice(5, 10).replace("-", "/") + " " + iso.slice(11, 16) : "";
   }
   function metaLine(t) {
-    var parts = [KIND_LABEL[t.kind] || t.kind];
+    var parts = [t.kind || UNSORTED_LABEL];
     if (t.project) parts.push(t.project);
     if (t.issue !== null && t.issue !== undefined) parts.push("#" + t.issue);
     if (t.open_round !== null && t.open_round !== undefined) parts.push("R" + t.open_round);
@@ -324,6 +323,23 @@ button, input, select { font: inherit; color: inherit; }
     shown.forEach(function (t) { frag.appendChild(renderItem(t)); });
     els.list.replaceChildren(frag);
   }
+  function renderKinds() {
+    var seen = {};
+    topics.forEach(function (t) { seen[t.kind || ""] = true; });
+    var names = Object.keys(seen).sort(function (a, b) {
+      if (a === "" || b === "") return a === "" ? 1 : -1;  // 未分類は最後
+      return a.localeCompare(b, "ja");
+    });
+    var frag = document.createDocumentFragment();
+    names.forEach(function (n) {
+      var chip = el("button", "chip", n || UNSORTED_LABEL);
+      chip.type = "button";
+      chip.setAttribute("data-v", n);
+      chip.classList.toggle("on", chipOn("kind", n));
+      frag.appendChild(chip);
+    });
+    els.kinds.replaceChildren(frag);
+  }
   function renderProjects() {
     var seen = {};
     topics.forEach(function (t) { if (t.project) seen[t.project] = true; });
@@ -363,6 +379,7 @@ button, input, select { font: inherit; color: inherit; }
       pruneMaps();
       markFresh(prev);
       renderCounts(doc.counts || {});
+      renderKinds();
       renderProjects();
       renderList();
       syncFrame(prev);
@@ -456,8 +473,9 @@ button, input, select { font: inherit; color: inherit; }
       var chip = e.target.closest(".chip");
       if (!chip) return;
       var v = chip.getAttribute("data-v");
-      var idx = filters[key].indexOf(v);
-      filters[key] = idx >= 0 ? filters[key].filter(function (x) { return x !== v; }) : filters[key].concat([v]);
+      var listKey = key === "kind" ? "kindOff" : key;  // 種類チップは「隠す側」の一覧を持つ
+      var idx = filters[listKey].indexOf(v);
+      filters[listKey] = idx >= 0 ? filters[listKey].filter(function (x) { return x !== v; }) : filters[listKey].concat([v]);
       saveFilters(); applyFilterUi(); renderList();
     });
   });
