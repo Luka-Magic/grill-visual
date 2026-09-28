@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grill</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+<style>
+:root {
+  --bg: #21252b; --surface: #282c34; --surface-dim: #2f343f; --border: #3a4048;
+  --text: #b6bec9; --text-bright: #dde3ea; --text-dim: #7b8494;
+  --blue: #61afef; --green: #98c379; --orange: #d19a66; --red: #e06c75;
+  --side-w: 320px; --top-h: 44px;
+  font-size: 15px;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text); line-height: 1.5;
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", "Meiryo", sans-serif;
+  display: flex; flex-direction: row; height: 100dvh; overflow: hidden;
+}
+.mono { font-family: "Consolas", "Menlo", monospace; }
+button, input, select { font: inherit; color: inherit; }
+
+/* ---- サイドバー ---- */
+#side {
+  width: var(--side-w); flex: 0 0 var(--side-w); display: flex; flex-direction: column;
+  background: var(--surface); border-right: 1px solid var(--border); min-height: 0;
+}
+.side-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+.kicker {
+  font-family: "Consolas", monospace; font-size: 12px; letter-spacing: 0.13em;
+  text-transform: uppercase; color: var(--green); margin-bottom: 6px;
+}
+.kicker::before { content: "❯ "; color: var(--blue); }
+.counts { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge {
+  display: inline-block; border-radius: 4px; font-size: 11px; font-weight: 500;
+  font-family: "Consolas", monospace; padding: 0 7px; white-space: nowrap; line-height: 1.7;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.badge.waiting { color: var(--orange); border-color: var(--orange); }
+.badge.answered { color: var(--blue); border-color: var(--blue); }
+.badge.done { color: var(--green); border-color: var(--green); }
+.badge.error { color: var(--red); border-color: var(--red); }
+.badge b { font-weight: 700; }
+
+.filters { padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+#q, #issue, #project {
+  width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 10px; font-size: 13px; color: var(--text-bright);
+}
+#q:focus, #issue:focus, #project:focus { outline: none; border-color: var(--blue); }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip {
+  background: var(--surface-dim); border: 1px solid var(--border); border-radius: 999px;
+  padding: 2px 10px; font-size: 12px; cursor: pointer; color: var(--text-dim);
+}
+.chip.on { color: var(--text-bright); border-color: var(--blue); }
+.chip[data-v="waiting"].on { color: var(--orange); border-color: var(--orange); }
+.chip[data-v="answered"].on { color: var(--blue); border-color: var(--blue); }
+.chip[data-v="done"].on { color: var(--green); border-color: var(--green); }
+.row { display: flex; gap: 6px; }
+.row #issue { width: 6.5em; flex: 0 0 auto; }
+.check { font-size: 12px; color: var(--text-dim); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+
+#list { list-style: none; padding: 6px 0; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+#list li {
+  padding: 8px 14px 8px 12px; border-left: 3px solid transparent; cursor: pointer;
+  border-bottom: 1px solid var(--border); position: relative;
+}
+#list li:hover { background: var(--surface-dim); }
+#list li.active { background: var(--surface-dim); border-left-color: var(--blue); }
+#list li.fresh { border-left-color: var(--orange); }
+#list li.archived { opacity: 0.55; }
+#list li .head { display: flex; gap: 8px; align-items: center; }
+#list li .title {
+  color: var(--text-bright); font-size: 13.5px; font-weight: 600; line-height: 1.35;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+#list li .meta { font-family: "Consolas", monospace; font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+#list li .arch {
+  position: absolute; right: 8px; top: 7px; background: none; border: 1px solid transparent;
+  border-radius: 4px; color: var(--text-dim); font-size: 12px; padding: 0 5px; cursor: pointer; display: none;
+}
+#list li:hover .arch { display: inline-block; }
+#list li .arch:hover { border-color: var(--border); color: var(--text-bright); }
+#list .none { padding: 20px 14px; color: var(--text-dim); font-size: 13px; text-align: center; }
+#side-foot { padding: 6px 12px; font-family: "Consolas", monospace; font-size: 11px; color: var(--text-dim); border-top: 1px solid var(--border); }
+#side-foot .err { color: var(--red); }
+
+/* ---- 右ペイン ---- */
+#pane { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#notice {
+  display: flex; gap: 10px; align-items: center; padding: 7px 14px; font-size: 13px;
+  background: rgba(209, 154, 102, 0.12); border-bottom: 1px solid var(--orange); color: var(--text-bright);
+}
+#notice[hidden] { display: none; }
+.btn {
+  font-size: 12.5px; border-radius: 6px; padding: 4px 12px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-dim); color: var(--text-bright);
+}
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #14161a; font-weight: 700; }
+.btn.ghost { background: none; border-color: transparent; color: var(--text-dim); }
+.frame-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; position: relative; }
+#frame { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+#empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 30px; background: var(--bg); }
+#empty[hidden] { display: none; }
+.empty-inner { max-width: 520px; color: var(--text-dim); font-size: 14px; text-align: center; line-height: 1.8; }
+.empty-inner h2 { color: var(--text-bright); font-size: 18px; margin-bottom: 8px; }
+.empty-inner code { font-family: "Consolas", monospace; background: var(--surface-dim); padding: 1px 6px; border-radius: 4px; }
+
+/* ---- モバイル ---- */
+#topbar { display: none; }
+#scrim { display: none; }
+@media (max-width: 860px) {
+  body { flex-direction: column; }
+  #topbar {
+    display: flex; align-items: center; gap: 10px; height: var(--top-h); flex: 0 0 var(--top-h);
+    padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  #menu { background: var(--surface-dim); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  #top-title { color: var(--text-bright); font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #side {
+    position: fixed; top: var(--top-h); bottom: 0; left: 0; width: min(88vw, var(--side-w));
+    transform: translateX(-100%); transition: transform 0.18s; z-index: 30;
+  }
+  body.drawer-open #side { transform: none; }
+  body.drawer-open #scrim { display: block; position: fixed; inset: var(--top-h) 0 0 0; background: rgba(10, 12, 16, 0.6); z-index: 20; }
+  #list li .arch { display: inline-block; }
+}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <button id="menu" type="button" aria-label="一覧を開く">☰ <span id="top-count" class="mono">待ち 0</span></button>
+  <span id="top-title"></span>
+</div>
+
+<aside id="side">
+  <header class="side-head">
+    <div class="kicker">grill dashboard</div>
+    <div class="counts">
+      <span class="badge waiting">待ち <b id="c-waiting">0</b></span>
+      <span class="badge answered">回答済み <b id="c-answered">0</b></span>
+      <span class="badge done">完了 <b id="c-done">0</b></span>
+    </div>
+  </header>
+  <div class="filters">
+    <input id="q" type="search" placeholder="検索(タイトル・topic)" autocomplete="off">
+    <div class="chips" data-filter="state">
+      <button type="button" class="chip on" data-v="waiting">待ち</button>
+      <button type="button" class="chip on" data-v="answered">回答済み</button>
+      <button type="button" class="chip on" data-v="done">完了</button>
+    </div>
+    <div class="chips" data-filter="kind">
+      <button type="button" class="chip on" data-v="plan">計画</button>
+      <button type="button" class="chip on" data-v="test-review">test-review</button>
+      <button type="button" class="chip on" data-v="ui-check">ui-check</button>
+    </div>
+    <div class="row">
+      <select id="project"><option value="">プロジェクト: すべて</option></select>
+      <input id="issue" type="number" min="0" placeholder="#issue">
+    </div>
+    <label class="check"><input type="checkbox" id="show-archived"> アーカイブ済みも表示</label>
+  </div>
+  <ul id="list"></ul>
+  <footer id="side-foot"></footer>
+</aside>
+
+<main id="pane">
+  <div id="notice" hidden>
+    <span id="notice-text">この質問票は更新されています</span>
+    <button type="button" class="btn primary" id="reload">再読み込み</button>
+    <button type="button" class="btn ghost" id="dismiss" aria-label="閉じる">×</button>
+  </div>
+  <div class="frame-wrap">
+    <div id="empty">
+      <div class="empty-inner">
+        <h2>質問票を選んでください</h2>
+        左の一覧から選ぶと、ここにそのまま表示されます。<br>
+        URL は <code>#topic</code> で共有できます。
+      </div>
+    </div>
+    <iframe id="frame" title="質問票"></iframe>
+  </div>
+</main>
+<div id="scrim"></div>
+
+<script>
+(function () {
+  "use strict";
+  var POLL_MS = 3000;
+  var TOPIC_RE = /^[A-Za-z0-9_-]{1,80}$/;
+  var STORAGE_KEY = "grill-dashboard.filters";
+  var STATE_RANK = { waiting: 0, answered: 1, error: 2, done: 3 };
+  var STATE_LABEL = { waiting: "待ち", answered: "回答済み", done: "完了", error: "読めない" };
+  var KIND_LABEL = { plan: "計画", "test-review": "test-review", "ui-check": "ui-check" };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var els = {
+    list: $("list"), frame: $("frame"), empty: $("empty"), notice: $("notice"), noticeText: $("notice-text"),
+    project: $("project"), issue: $("issue"), q: $("q"), showArchived: $("show-archived"),
+    foot: $("side-foot"), topTitle: $("top-title"), topCount: $("top-count")
+  };
+
+  var topics = [];          // /api/state の topics
+  var lastText = "";        // 直前のレスポンス本文(同じなら DOM を触らない)
+  var current = null;       // 選択中の topic
+  var frameStarted = false; // iframe に一度でも src を入れたか
+  var loadedVersion = {};   // topic → iframe に読み込んだ version(データ JSON の mtime)
+  var pendingSubmit = {};   // topic → iframe から「送信した」と聞いた round
+  var fresh = {};           // 新たに待ちになった topic(クリックするまで印を付ける)
+  var fetchGeneration = 0;  // 並行した /api/state の応答のうち最新のものだけを採用する
+  var filters = loadFilters();
+
+  // ---------------------------------------------------------------- フィルタの保存
+  function defaultFilters() {
+    return { state: ["waiting", "answered", "done"], kind: ["plan", "test-review", "ui-check"],
+             project: "", issue: "", q: "", archived: false };
+  }
+  function loadFilters() {
+    var base = defaultFilters();
+    try {
+      var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      if (saved && typeof saved === "object") {
+        Object.keys(base).forEach(function (k) {
+          if (!(k in saved)) return;
+          var v = saved[k], want = base[k];
+          if (Array.isArray(want)) { if (Array.isArray(v)) base[k] = v.filter(function (x) { return typeof x === "string"; }); }
+          else if (typeof v === typeof want) base[k] = v;
+        });
+      }
+    } catch (e) { /* 壊れていれば既定値 */ }
+    return base;
+  }
+  function saveFilters() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(filters)); } catch (e) { /* 保存できなくても動く */ }
+  }
+  function applyFilterUi() {
+    document.querySelectorAll(".chips").forEach(function (group) {
+      var key = group.getAttribute("data-filter");
+      group.querySelectorAll(".chip").forEach(function (chip) {
+        chip.classList.toggle("on", filters[key].indexOf(chip.getAttribute("data-v")) >= 0);
+      });
+    });
+    els.q.value = filters.q;
+    els.issue.value = filters.issue;
+    els.showArchived.checked = filters.archived;
+  }
+
+  // ---------------------------------------------------------------- 一覧
+  function byTopic(list) {
+    var map = Object.create(null);  // "__proto__" のような topic でも安全
+    list.forEach(function (t) { map[t.topic] = t; });
+    return map;
+  }
+  function sanitizeTopics(list) {
+    // サーバー側でも弾いているが、URL や DOM に使う前にもう一度確かめる
+    return list.filter(function (t) { return t && typeof t.topic === "string" && TOPIC_RE.test(t.topic); });
+  }
+  function visible(t) {
+    if (t.archived && !filters.archived) return false;
+    var stateKey = t.state === "error" ? "waiting" : t.state;  // 読めないものは待ち扱いで見せる
+    if (filters.state.indexOf(stateKey) < 0) return false;
+    if (filters.kind.indexOf(t.kind) < 0) return false;
+    if (filters.project && (t.project || "") !== filters.project) return false;
+    if (filters.issue !== "" && String(t.issue) !== String(filters.issue)) return false;
+    if (filters.q) {
+      var hay = (t.title + " " + t.topic).toLowerCase();
+      if (hay.indexOf(filters.q.toLowerCase()) < 0) return false;
+    }
+    return true;
+  }
+  function compare(a, b) {
+    var r = STATE_RANK[a.state] - STATE_RANK[b.state];
+    if (r !== 0) return r;
+    return a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0;
+  }
+  function shortTime(iso) {
+    // "2026-09-27T01:02:03" → "09/27 01:02"
+    return iso ? iso.slice(5, 10).replace("-", "/") + " " + iso.slice(11, 16) : "";
+  }
+  function metaLine(t) {
+    var parts = [KIND_LABEL[t.kind] || t.kind];
+    if (t.project) parts.push(t.project);
+    if (t.issue !== null && t.issue !== undefined) parts.push("#" + t.issue);
+    if (t.open_round !== null && t.open_round !== undefined) parts.push("R" + t.open_round);
+    parts.push(shortTime(t.updated_at));
+    return parts.join(" · ");
+  }
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function renderItem(t) {
+    var li = el("li");
+    li.setAttribute("data-topic", t.topic);
+    if (t.topic === current) li.classList.add("active");
+    if (fresh[t.topic]) li.classList.add("fresh");
+    if (t.archived) li.classList.add("archived");
+    var head = el("div", "head");
+    head.appendChild(el("span", "badge " + t.state, STATE_LABEL[t.state]));
+    head.appendChild(el("span", "title", t.title || t.topic));
+    li.appendChild(head);
+    var meta = el("div", "meta", metaLine(t));
+    if (t.error) meta.title = t.error;
+    li.appendChild(meta);
+    var arch = el("button", "arch", t.archived ? "戻す" : "隠す");
+    arch.type = "button";
+    arch.title = t.archived ? "一覧に戻す" : "アーカイブ(一覧から隠す)";
+    arch.addEventListener("click", function (e) { e.stopPropagation(); toggleArchive(t.topic, !t.archived); });
+    li.appendChild(arch);
+    li.addEventListener("click", function () { select(t.topic); });
+    return li;
+  }
+  function renderList() {
+    var shown = topics.filter(visible).sort(compare);
+    var frag = document.createDocumentFragment();
+    if (shown.length === 0) frag.appendChild(el("li", "none", "該当する質問票はありません"));
+    shown.forEach(function (t) { frag.appendChild(renderItem(t)); });
+    els.list.replaceChildren(frag);
+  }
+  function renderProjects() {
+    var seen = {};
+    topics.forEach(function (t) { if (t.project) seen[t.project] = true; });
+    var names = Object.keys(seen).sort();
+    var frag = document.createDocumentFragment();
+    frag.appendChild(new Option("プロジェクト: すべて", ""));
+    names.forEach(function (n) { frag.appendChild(new Option(n, n)); });
+    els.project.replaceChildren(frag);
+    els.project.value = names.indexOf(filters.project) >= 0 ? filters.project : "";
+  }
+  function renderCounts(counts) {
+    ["waiting", "answered", "done"].forEach(function (k) { $("c-" + k).textContent = counts[k] || 0; });
+    var waiting = counts.waiting || 0;
+    document.title = waiting ? "[待ち " + waiting + "] Grill" : "Grill";
+    els.topCount.textContent = "待ち " + waiting;
+    var foot = [];
+    if (counts.error) foot.push('<span class="err">読めないファイル ' + counts.error + ' 件</span>');
+    foot.push("更新 " + shortTime(lastGeneratedAt));
+    els.foot.innerHTML = foot.join(" · ");
+  }
+  var lastGeneratedAt = "";
+
+  // ---------------------------------------------------------------- 状態の取得
+  function fetchState() {
+    var generation = ++fetchGeneration;
+    return fetch("/api/state", { cache: "no-store" }).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.text();
+    }).then(function (text) {
+      if (generation !== fetchGeneration) return;  // もっと新しい要求が出ている。古い応答は捨てる
+      if (text === lastText) return;
+      var doc = JSON.parse(text);
+      lastText = text;
+      var prev = byTopic(topics);
+      topics = sanitizeTopics(doc.topics || []);
+      lastGeneratedAt = doc.generated_at || "";
+      pruneMaps();
+      markFresh(prev);
+      renderCounts(doc.counts || {});
+      renderProjects();
+      renderList();
+      syncFrame(prev);
+    }).catch(function (e) {
+      els.foot.innerHTML = '<span class="err">取得失敗: ' + escapeText(e.message) + "</span>";
+    });
+  }
+  function escapeText(s) {
+    return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
+  }
+  function pruneMaps() {
+    var live = byTopic(topics);
+    [pendingSubmit, fresh, loadedVersion].forEach(function (map) {
+      Object.keys(map).forEach(function (k) { if (!(k in live)) delete map[k]; });
+    });
+  }
+  function markFresh(prev) {
+    topics.forEach(function (t) {
+      var p = prev[t.topic];
+      if (t.state === "waiting" && p && p.state !== "waiting" && t.topic !== current) fresh[t.topic] = true;
+    });
+  }
+
+  // ---------------------------------------------------------------- iframe
+  function showEmpty(title, body) {
+    els.empty.querySelector("h2").textContent = title;
+    els.empty.querySelector(".empty-inner").lastChild.textContent = body;
+    els.empty.hidden = false;
+  }
+  function frameUrl(t) {
+    return "/grill-" + t.topic + ".html?v=" + encodeURIComponent(t.version || "");
+  }
+  function loadFrame(t) {
+    els.notice.hidden = true;
+    els.topTitle.textContent = t ? (t.title || t.topic) : (current || "");
+    if (!t) { showEmpty("見つかりません", "この topic の質問票データはまだありません。"); return; }
+    if (t.state === "error") { showEmpty("読めません", t.error || "JSON が壊れています。AI が書き換え中かもしれません。"); return; }
+    if (!t.html_exists) { showEmpty("まだレンダーされていません", "grill-" + t.topic + ".html がありません。"); return; }
+    els.empty.hidden = true;
+    var url = frameUrl(t);
+    if (!frameStarted) { els.frame.src = url; frameStarted = true; }
+    else { try { els.frame.contentWindow.location.replace(url); } catch (e) { els.frame.src = url; } }
+    loadedVersion[t.topic] = t.version;
+  }
+  function syncFrame(prev) {
+    if (!current) return;
+    var t = byTopic(topics)[current];
+    if (!t) { if (loadedVersion[current] !== undefined || !els.empty.hidden) loadFrame(undefined); return; }
+    if (loadedVersion[current] === undefined) { loadFrame(t); return; }  // 初回(データが来る前に hash があった)
+    if (t.version === loadedVersion[current]) return;  // 回答ファイルが出ただけでは version は変わらない
+    var p = prev[current];
+    var becameWaiting = p && p.state !== "waiting" && t.state === "waiting";
+    if (pendingSubmit[current] !== undefined || becameWaiting) {
+      delete pendingSubmit[current];
+      loadFrame(t);
+    } else {
+      els.notice.hidden = false;
+    }
+  }
+  function select(topic) {
+    if (location.hash.slice(1) !== topic) history.replaceState(null, "", "#" + topic);  // 履歴を積まない
+    onHashChange();
+  }
+  function onHashChange() {
+    document.body.classList.remove("drawer-open");
+    var topic = decodeURIComponent(location.hash.slice(1));
+    if (!TOPIC_RE.test(topic)) { current = null; showEmpty("質問票を選んでください", "左の一覧から選ぶと、ここにそのまま表示されます。"); return; }
+    current = topic;
+    delete fresh[topic];
+    els.topTitle.textContent = topic;
+    var t = byTopic(topics)[topic];
+    if (!lastText) return;  // 初回取得を待つ(syncFrame が読み込む)
+    loadFrame(t);
+    renderList();
+  }
+
+  // ---------------------------------------------------------------- 操作
+  function toggleArchive(topic, archived) {
+    fetch("/api/archive", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: topic, archived: archived })
+    }).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      lastText = "";
+      return fetchState();
+    }).catch(function (e) { alert("アーカイブの保存に失敗: " + e.message); });
+  }
+  document.querySelectorAll(".chips").forEach(function (group) {
+    var key = group.getAttribute("data-filter");
+    group.addEventListener("click", function (e) {
+      var chip = e.target.closest(".chip");
+      if (!chip) return;
+      var v = chip.getAttribute("data-v");
+      var idx = filters[key].indexOf(v);
+      filters[key] = idx >= 0 ? filters[key].filter(function (x) { return x !== v; }) : filters[key].concat([v]);
+      saveFilters(); applyFilterUi(); renderList();
+    });
+  });
+  els.q.addEventListener("input", function () { filters.q = els.q.value.trim(); saveFilters(); renderList(); });
+  els.issue.addEventListener("input", function () { filters.issue = els.issue.value.trim(); saveFilters(); renderList(); });
+  els.project.addEventListener("change", function () { filters.project = els.project.value; saveFilters(); renderList(); });
+  els.showArchived.addEventListener("change", function () { filters.archived = els.showArchived.checked; saveFilters(); renderList(); });
+  $("reload").addEventListener("click", function () { var t = byTopic(topics)[current]; if (t) loadFrame(t); });
+  $("dismiss").addEventListener("click", function () { els.notice.hidden = true; });
+  $("menu").addEventListener("click", function () { document.body.classList.toggle("drawer-open"); });
+  $("scrim").addEventListener("click", function () { document.body.classList.remove("drawer-open"); });
+
+  window.addEventListener("hashchange", onHashChange);
+  window.addEventListener("message", function (e) {
+    if (e.origin !== location.origin || e.source !== els.frame.contentWindow) return;
+    var d = e.data;
+    if (!d || d.type !== "grill-submitted" || typeof d.topic !== "string") return;
+    pendingSubmit[d.topic] = d.round;
+    fetchState();
+  });
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") fetchState(); });
+  setInterval(function () { if (document.visibilityState === "visible") fetchState(); }, POLL_MS);
+
+  applyFilterUi();
+  onHashChange();
+  fetchState();
+})();
+</script>
+</body>
+</html>
