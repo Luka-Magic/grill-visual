@@ -246,6 +246,62 @@ JS = """
 
   if (!bar) return;  // 回答対象の open ラウンドが無いページ(サマリ等)
 
+  // ---- 下書き(localStorage)。別ページへ行って戻っても選択・メモ・自由記述が残る ----
+  var DRAFT_PREFIX = "grill-draft:" + CONFIG.topic + ":";
+  var DRAFT_KEY = DRAFT_PREFIX + CONFIG.openRound;
+  var freeInput = document.getElementById("free-text");
+  var submitted = false;  // この下書きが送信済みか(送信後に開き直したとき、何を答えたか見える)
+
+  function collectNotes() {
+    var notes = {};
+    document.querySelectorAll('.q-card[data-open="true"] .q-note').forEach(function (ta) {
+      var v = ta.value.trim();
+      if (v) notes[ta.getAttribute("data-q")] = v;
+    });
+    return notes;
+  }
+  function saveDraft() {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        answers: answers, notes: collectNotes(), free_text: freeInput.value, submitted: submitted
+      }));
+    } catch (e) { /* 保存できない環境(プライベートモード等)でも回答はできる */ }
+  }
+  function markDirty() { submitted = false; saveDraft(); }
+  function clearOldDrafts() {  // 同じ題材の過去ラウンドの下書きは捨てる
+    try {
+      for (var i = localStorage.length - 1; i >= 0; i--) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(DRAFT_PREFIX) === 0 && k !== DRAFT_KEY) localStorage.removeItem(k);
+      }
+    } catch (e) { /* 読めなければ何もしない */ }
+  }
+  function restoreDraft() {
+    var d = null;
+    try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (e) { d = null; }
+    if (!d || typeof d !== "object") return;
+    (CONFIG.openQuestions || []).forEach(function (q) {
+      var card = document.querySelector('.q-card[data-q="' + q.id + '"][data-open="true"]');
+      if (!card) return;
+      var keys = (d.answers && Array.isArray(d.answers[q.id])) ? d.answers[q.id] : [];
+      answers[q.id] = keys.filter(function (k) {  // 今の選択肢に存在するものだけ戻す
+        return typeof k === "string" && card.querySelector('.opt[data-key="' + k + '"]');
+      });
+      card.querySelectorAll(".opt").forEach(function (o) {
+        o.classList.toggle("selected", answers[q.id].indexOf(o.getAttribute("data-key")) >= 0);
+      });
+      var ta = card.querySelector(".q-note");
+      if (ta && d.notes && typeof d.notes[q.id] === "string") ta.value = d.notes[q.id];
+    });
+    if (typeof d.free_text === "string") freeInput.value = d.free_text;
+    submitted = d.submitted === true;
+    renderBar();
+    if (submitted) {
+      status.textContent = "送信済みの回答です(変えるなら選び直して再送信)";
+      status.style.color = "var(--green)";
+    }
+  }
+
   function renderBar() {
     var parts = (CONFIG.openQuestions || [])
       .filter(function (q) { return answers[q.id].length > 0; })
@@ -278,6 +334,7 @@ JS = """
           answers[q].sort();
           opt.classList.add("selected");
         }
+        markDirty();
         renderBar();
       });
     });
@@ -293,6 +350,7 @@ JS = """
         o.classList.toggle("selected", q.recommended.indexOf(o.getAttribute("data-key")) >= 0);
       });
     });
+    markDirty();
     renderBar();
   });
 
@@ -319,12 +377,8 @@ JS = """
 
   var submitBtn = document.getElementById("submit-btn");
   submitBtn.addEventListener("click", function () {
-    var freeText = document.getElementById("free-text").value.trim();
-    var notes = {};
-    document.querySelectorAll('.q-card[data-open="true"] .q-note').forEach(function (ta) {
-      var v = ta.value.trim();
-      if (v) notes[ta.getAttribute("data-q")] = v;
-    });
+    var freeText = freeInput.value.trim();
+    var notes = collectNotes();
     var hasAnswers = (CONFIG.openQuestions || []).some(function (q) { return answers[q.id].length > 0; });
     var hasNotes = Object.keys(notes).length > 0;
     if (!hasAnswers && !freeText && !hasNotes) {
@@ -348,6 +402,8 @@ JS = """
       submitBtn.textContent = "送信済み";
       status.textContent = "送信しました ✓ AI が自動で処理を再開します";
       status.style.color = "var(--green)";
+      submitted = true;
+      saveDraft();
       if (window.parent !== window) {  // 統合ページの iframe 内なら、親に知らせて一覧を即時更新させる
         window.parent.postMessage({ type: "grill-submitted", topic: CONFIG.topic, round: CONFIG.openRound }, location.origin);
       }
@@ -358,6 +414,13 @@ JS = """
       status.style.color = "var(--red)";
     });
   });
+
+  document.querySelectorAll('.q-card[data-open="true"] .q-note').forEach(function (ta) {
+    ta.addEventListener("input", markDirty);
+  });
+  freeInput.addEventListener("input", markDirty);
+  clearOldDrafts();
+  restoreDraft();
 })();
 """
 

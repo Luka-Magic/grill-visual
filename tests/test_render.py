@@ -52,3 +52,11 @@ def test_dashboard_url_helper():
     assert render.dashboard_url("abc", "http://x/") == "http://x/#abc"
     assert render.dashboard_url("abc", "http://x") == "http://x/#abc"
     assert render.dashboard_url("abc", "") == "http://localhost:8787/#abc"
+
+
+def test_html_has_draft_persistence(root: Path):
+    write_topic(root, "t-4", [open_round(1)], intro="")
+    run_render(root, "t-4", {})
+    html = (root / "grill-t-4.html").read_text(encoding="utf-8")
+    assert "grill-draft:" in html
+    assert "restoreDraft()" in html
