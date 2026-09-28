@@ -30,9 +30,11 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
 2. **質問データ作成**: `~/.agent/diagrams/grill-data/<topic>.json` を書く
    (スキーマは `render.py` の docstring 参照。文字列は HTML として挿入されるので
    `<code>` / `<strong>` 可。ユーザー入力や外部データは埋め込まない)。
-   - 統合ページの絞り込み用に、任意で `"kind"`(`plan` / `test-review` / `ui-check`)・
-     `"project"`・`"issue"`(番号)を書ける。省略時は topic の接頭辞(`tr-` / `ui-`)と
-     title の `#N`、`<project>-<N>-` 形式の topic から推定される。
+   - 統合ページの絞り込み用に、任意で `"kind"`(種類。自由な短い文字列。例 `"計画"`
+     `"test-review"`)・`"project"`・`"issue"`(番号)を書ける。**種類の名前を決めるのは
+     grill-visual を呼ぶ側のスキル**で、grill-visual はその文字列を表示して絞り込むだけ。
+     `kind` が無ければ「未分類」。project / issue は省略時に title の `#N` と
+     `<project>-<N>-` 形式の topic から推定される。
    - ラウンドはタブになる。過去ラウンドは `"status": "answered"` +
      `answer` / `answer_note` / `user_note` / `free_text_answer` で履歴化、
      現行ラウンドだけ `"status": "open"`。まとめタブは `"status": "info"`。
@@ -82,10 +84,14 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
   - 回答済み: open ラウンドの回答ファイルが既にある(AI が次ラウンドをまだ書いていない)
   - 完了: open ラウンドが無い(info のまとめタブで終わっている)
   - 読めない: JSON が壊れている(AI の書き換え途中など。次の取得で直る)
-- **フィルタ**: 状態 / 種類(計画・test-review・ui-check)/ プロジェクト / issue 番号 / 検索。
+- **フィルタ**: 状態 / 種類(`kind` の値から自動で並ぶ)/ プロジェクト / issue 番号 / 検索。
   ブラウザの localStorage に保存される
 - **アーカイブ**(項目の「隠す」): `~/.agent/diagrams/.grill-dashboard.json` に保存。
   「アーカイブ済みも表示」で戻せる
+- **設定ファイル** `~/.agent/diagrams/.grill-dashboard.json`(任意): `kind` を書いていない
+  過去の題材に、topic の接頭辞で種類を与えられる。例:
+  `{"kind_prefixes": {"tr-": "test-review", "ui-": "ui-check"}}`。
+  これは環境側の対応表で、grill-visual 自体は特定の種類名を知らない
 - 3 秒ごとに `/api/state` を取得(タブが見えているときだけ)。タイトルに待ち件数が出る
 - 質問票の再読み込みは、送信後に AI が次ラウンドを出したとき・見ていた題材が新たに待ちになったときだけ自動。
   それ以外の更新は上部に「再読み込み」を出すだけ(入力中の内容を消さない)

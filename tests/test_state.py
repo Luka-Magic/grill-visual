@@ -123,18 +123,18 @@ def test_title_falls_back_to_topic(root: Path):
 @pytest.mark.parametrize(
     "topic,title,extra,kind,project,issue",
     [
-        ("tr-20-species", "#20 テストケース", {}, "test-review", None, 20),
-        ("ui-4-ai", "#4 画面の確認", {}, "ui-check", None, 4),
-        ("birdlog-20-species", "#20 設計", {}, "plan", "birdlog", 20),
-        ("26-trip-calendar", "#26 カレンダー", {}, "plan", None, 26),
-        ("prompt-platform", "プロンプト改善", {}, "plan", None, None),
-        ("pr38", "PR #38 の課題", {}, "plan", None, 38),
-        ("rules-04-github", "04-github.md の精査", {}, "plan", None, None),
-        ("tr-03-media-detail", "テストレビュー T03: 詳細画面", {}, "test-review", None, None),
-        ("ui-03-trip-window", "#3 画面の確認", {}, "ui-check", None, 3),
+        ("tr-20-species", "#20 テストケース", {}, None, "tr", 20),
+        ("birdlog-20-species", "#20 設計", {}, None, "birdlog", 20),
+        ("26-trip-calendar", "#26 カレンダー", {}, None, None, 26),
+        ("prompt-platform", "プロンプト改善", {}, None, None, None),
+        ("pr38", "PR #38 の課題", {}, None, None, 38),
+        ("rules-04-github", "04-github.md の精査", {}, None, None, None),
+        ("tr-03-media-detail", "テストレビュー T03: 詳細画面", {}, None, None, None),
         ("x", "t", {"kind": "ui-check", "project": "p", "issue": 7}, "ui-check", "p", 7),
-        ("x", "t", {"issue": "12"}, "plan", None, 12),
-        ("tr-1-x", "t", {"kind": "bogus"}, "test-review", None, 1),
+        ("x", "t", {"issue": "12"}, None, None, 12),
+        ("x", "t", {"kind": "  計画 "}, "計画", None, None),
+        ("x", "t", {"kind": ""}, None, None, None),
+        ("x", "t", {"kind": 3}, None, None, None),
     ],
 )
 def test_heuristics(root: Path, topic, title, extra, kind, project, issue):
@@ -143,7 +143,38 @@ def test_heuristics(root: Path, topic, title, extra, kind, project, issue):
     assert (t.kind, t.project, t.issue) == (kind, project, issue)
 
 
+def write_config(root: Path, doc: dict) -> None:
+    (root / state.ARCHIVE_FILE).write_text(json.dumps(doc), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "topic,extra,kind,project",
+    [
+        ("tr-20-species", {}, "test-review", None),          # 接頭辞で種類が付き、tr はプロジェクトにしない
+        ("ui-3-x", {}, "ui-check", None),
+        ("ui-3-x", {"kind": "自分で決めた"}, "自分で決めた", None),  # 明示が優先
+        ("tr-x-1-y", {}, "long", None),                      # 長い接頭辞を優先
+        ("birdlog-20-species", {}, None, "birdlog"),
+    ],
+)
+def test_kind_prefixes_from_config(root: Path, topic, extra, kind, project):
+    write_config(root, {"kind_prefixes": {"tr-": "test-review", "ui-": "ui-check", "tr-x-": "long", "": "bad"}})
+    write_topic(root, topic, [open_round(1)], title="t", **extra)
+    t = by_topic(state.scan(root))[topic]
+    assert (t.kind, t.project) == (kind, project)
+
+
+def test_set_archived_keeps_other_config(root: Path):
+    write_config(root, {"kind_prefixes": {"tr-": "test-review"}})
+    state.set_archived(root, "a", True)
+    doc = json.loads((root / state.ARCHIVE_FILE).read_text(encoding="utf-8"))
+    assert doc["kind_prefixes"] == {"tr-": "test-review"}
+    assert "a" in doc["archived"]
+    assert state.load_kind_prefixes(root) == {"tr-": "test-review"}
+
+
 def test_tr_topic_inherits_project_from_same_issue(root: Path):
+    write_config(root, {"kind_prefixes": {"tr-": "test-review"}})
     write_topic(root, "birdlog-20-species", [info_round(1)], title="#20 設計")
     write_topic(root, "tr-20-species", [open_round(1)], title="#20 テスト")
     write_topic(root, "tr-9-other", [open_round(1)], title="#9 テスト")
@@ -153,6 +184,7 @@ def test_tr_topic_inherits_project_from_same_issue(root: Path):
 
 
 def test_no_inherit_when_ambiguous(root: Path):
+    write_config(root, {"kind_prefixes": {"tr-": "test-review"}})
     write_topic(root, "alpha-3-x", [info_round(1)], title="#3")
     write_topic(root, "beta-3-y", [info_round(1)], title="#3")
     write_topic(root, "tr-3-z", [open_round(1)], title="#3")

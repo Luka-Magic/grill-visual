@@ -21,19 +21,13 @@ from typing import Literal
 
 DATA_DIR = "grill-data"
 ANSWERS_DIR = "answers"
-ARCHIVE_FILE = ".grill-dashboard.json"
+ARCHIVE_FILE = ".grill-dashboard.json"   # 統合ページの設定(archived / kind_prefixes)
 TIME_FMT = "%Y-%m-%dT%H:%M:%S"
 TOPIC_MAX_LEN = 80
 DEFAULT_ROOT = Path.home() / ".agent" / "diagrams"
 
-Kind = Literal["plan", "test-review", "ui-check"]
 State = Literal["waiting", "answered", "done", "error"]
-
-KINDS: tuple[Kind, ...] = ("plan", "test-review", "ui-check")
 STATES: tuple[State, ...] = ("waiting", "answered", "done", "error")
-KIND_BY_PREFIX: dict[str, Kind] = {"tr": "test-review", "ui": "ui-check"}
-
-KIND_PREFIX_RE = re.compile(r"^(tr|ui)-")
 ISSUE_IN_TITLE_RE = re.compile(r"(?<![\w#])#(\d{1,6})\b")
 # topic 中の番号は先頭 0 を認めない("rules-04-github" の 04 や "tr-03-media-detail" の T03 は issue ではない)
 ISSUE_IN_TOPIC_RE = re.compile(r"^(?:[a-z][a-z0-9]*-)?([1-9]\d{0,5})-")
@@ -44,7 +38,7 @@ PROJECT_IN_TOPIC_RE = re.compile(r"^([a-z][a-z0-9]*)-[1-9]\d{0,5}-")
 class TopicState:
     topic: str
     title: str
-    kind: Kind
+    kind: str | None      # 質問票を出すスキルが宣言する自由な種類名(無ければ None = 未分類)
     project: str | None
     issue: int | None
     state: State
@@ -89,40 +83,56 @@ def _fmt(ts: float) -> str:
     return time.strftime(TIME_FMT, time.localtime(ts))
 
 
-# ---------------------------------------------------------------- アーカイブ
+# ---------------------------------------------------------------- 設定(アーカイブ・種類の接頭辞)
 
-def load_archive(root: Path) -> dict[str, str]:
-    """{topic: アーカイブした時刻}。無い・壊れている場合は空。"""
-    path = root / ARCHIVE_FILE
+def load_config(root: Path) -> dict:
+    """統合ページの設定ファイル。無い・壊れている場合は空。"""
     try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc = json.loads((root / ARCHIVE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    archived = doc.get("archived") if isinstance(doc, dict) else None
-    if not isinstance(archived, dict):
+    return doc if isinstance(doc, dict) else {}
+
+
+def _str_map(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
         return {}
-    return {str(k): str(v) for k, v in archived.items()}
+    return {str(k): str(v) for k, v in value.items() if isinstance(v, (str, int, float))}
+
+
+def load_archive(root: Path) -> dict[str, str]:
+    """{topic: アーカイブした時刻}。"""
+    return _str_map(load_config(root).get("archived"))
+
+
+def load_kind_prefixes(root: Path) -> dict[str, str]:
+    """{topic の接頭辞: kind}。JSON に kind が無い題材(過去の分など)に環境側で種類を与える。"""
+    return {k: v for k, v in _str_map(load_config(root).get("kind_prefixes")).items() if k}
 
 
 def set_archived(root: Path, topic: str, archived: bool) -> dict[str, str]:
-    """アーカイブ状態を書き換えて、新しい {topic: 時刻} を返す(元の dict は変更しない)。"""
-    current = load_archive(root)
+    """アーカイブ状態を書き換えて、新しい {topic: 時刻} を返す(他の設定は保つ)。"""
+    config = load_config(root)
+    current = _str_map(config.get("archived"))
     if archived:
         updated = {**current, topic: _fmt(time.time())}
     else:
         updated = {k: v for k, v in current.items() if k != topic}
-    write_json_atomic(root / ARCHIVE_FILE, {"archived": updated})
+    write_json_atomic(root / ARCHIVE_FILE, {**config, "archived": updated})
     return updated
 
 
 # ---------------------------------------------------------------- 推定ルール
 
-def detect_kind(topic: str, data: dict) -> Kind:
+def detect_kind(topic: str, data: dict, prefixes: dict[str, str]) -> str | None:
+    """明示の kind → 設定の接頭辞(長いものを優先)→ None。grill-visual 自身は種類の意味を知らない。"""
     explicit = data.get("kind")
-    if explicit in KINDS:
-        return explicit  # type: ignore[return-value]
-    m = KIND_PREFIX_RE.match(topic)
-    return KIND_BY_PREFIX[m.group(1)] if m else "plan"
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if topic.startswith(prefix):
+            return prefixes[prefix]
+    return None
 
 
 def _as_issue(value: object) -> int | None:
@@ -143,25 +153,25 @@ def detect_issue(topic: str, title: str, data: dict) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def detect_project(topic: str, data: dict) -> str | None:
+def detect_project(topic: str, data: dict, prefixes: dict[str, str]) -> str | None:
     explicit = data.get("project")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
+    if any(topic.startswith(p) for p in prefixes):  # 種類の接頭辞はプロジェクト名ではない
+        return None
     m = PROJECT_IN_TOPIC_RE.match(topic)
-    if m and m.group(1) not in KIND_BY_PREFIX:
-        return m.group(1)
-    return None
+    return m.group(1) if m else None
 
 
 def inherit_project(topics: tuple[TopicState, ...]) -> tuple[TopicState, ...]:
-    """project 不明の tr-/ui- 題材に、同じ issue 番号の題材の project が 1 種類だけならそれを借りる。"""
+    """project 不明の題材に、同じ issue 番号の題材の project が 1 種類だけならそれを借りる。"""
     by_issue: dict[int, set[str]] = {}
     for t in topics:
         if t.issue is not None and t.project:
             by_issue.setdefault(t.issue, set()).add(t.project)
 
     def fix(t: TopicState) -> TopicState:
-        if t.project or t.issue is None or t.kind == "plan":
+        if t.project or t.issue is None:
             return t
         candidates = by_issue.get(t.issue, set())
         if len(candidates) != 1:
@@ -202,14 +212,14 @@ def _error_state(path: Path, archived: dict[str, str], message: str) -> TopicSta
     except OSError:  # 読めなかった直後に消された(片付け中など)
         updated_at, version = "", "0"
     return TopicState(
-        topic=path.stem, title=path.name, kind="plan", project=None, issue=None,
+        topic=path.stem, title=path.name, kind=None, project=None, issue=None,
         state="error", open_round=None, round_count=0, updated_at=updated_at, version=version,
         html_exists=(path.parent.parent / f"grill-{path.stem}.html").exists(),
         archived=path.stem in archived, error=message,
     )
 
 
-def topic_state(path: Path, root: Path, archived: dict[str, str]) -> TopicState:
+def topic_state(path: Path, root: Path, archived: dict[str, str], prefixes: dict[str, str]) -> TopicState:
     """grill-data/<topic>.json 1 件を読む。壊れていても error 項目として返す(一覧から消さない)。"""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -226,8 +236,8 @@ def topic_state(path: Path, root: Path, archived: dict[str, str]) -> TopicState:
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return _error_state(path, archived, f"{type(exc).__name__}: {exc}")
     return TopicState(
-        topic=topic, title=title, kind=detect_kind(topic, data),
-        project=detect_project(topic, data), issue=detect_issue(topic, title, data),
+        topic=topic, title=title, kind=detect_kind(topic, data, prefixes),
+        project=detect_project(topic, data, prefixes), issue=detect_issue(topic, title, data),
         state=st, open_round=open_round, round_count=len(rounds),
         updated_at=_updated_at(path, root, topic, open_round),
         version=str(path.stat().st_mtime_ns),
@@ -237,10 +247,12 @@ def topic_state(path: Path, root: Path, archived: dict[str, str]) -> TopicState:
 
 
 def scan(root: Path) -> Snapshot:
-    archived = load_archive(root)
+    config = load_config(root)
+    archived = _str_map(config.get("archived"))
+    prefixes = {k: v for k, v in _str_map(config.get("kind_prefixes")).items() if k}
     data_dir = root / DATA_DIR
     paths = sorted(data_dir.glob("*.json")) if data_dir.is_dir() else []
-    topics = tuple(topic_state(p, root, archived) for p in paths)
+    topics = tuple(topic_state(p, root, archived, prefixes) for p in paths)
     return Snapshot(topics=inherit_project(topics), generated_at=_fmt(time.time()))
 
 
