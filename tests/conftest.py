@@ -1,4 +1,4 @@
-"""共通 fixture: 一時的な ~/.agent/diagrams 相当のルートと、題材/回答ファイルの書き出しヘルパ。"""
+"""共通 fixture: 一時的な GRILL_ROOT 相当のルートと、題材/回答ファイルの書き出しヘルパ。"""
 from __future__ import annotations
 
 import json
