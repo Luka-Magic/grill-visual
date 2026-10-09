@@ -2,18 +2,20 @@
 """grill-visual driver: 質問データ JSON からタブ式の質問票 HTML を生成する。
 
 使い方:
-    python3 render.py ~/.agent/diagrams/grill-data/<topic>.json
+    python3 render.py <GRILL_ROOT>/grill-data/<topic>.json
 
 出力:
-    ~/.agent/diagrams/grill-<topic>.html(1 題材 1 ファイル。URL 固定)
+    <GRILL_ROOT>/grill-<topic>.html(1 題材 1 ファイル。URL 固定。GRILL_ROOT の既定は ~/.claude/grill-visual)
 
-印字: 出力パスと、統合ページの URL(<root>#<topic>。root は環境変数 PARALLEL_GRILL_URL、
+印字: 出力パスと、統合ページの URL(<root>#<topic>。root は環境変数 GRILL_URL、
       無ければ http://localhost:8787/)。
 
-スキーマ(文字列は HTML として挿入される。<code>/<strong> 可。外部入力は入れない):
+スキーマ(文字列は HTML として挿入される。<code>/<strong>/表/画像/リンクなどが使える。
+許可していないタグ・属性・URL は sanitize.py が取り除く。user_note / free_text_answer は
+ユーザーの入力なので HTML として扱わずエスケープする):
 {
   "topic": "slug", "title": "見出し", "intro": "リード文",
-  "kind": "plan"|"test-review"|"ui-check"?, "project": str?, "issue": int?,   # 統合ページの絞り込み用(省略時は topic/title から推定)
+  "kind": str?, "project": str?, "issue": int?,   # 統合ページの絞り込み用(kind は自由な短い文字列。省略時は topic/title から推定)
   "tree": [{"label": str, "status": "done"|"open", "note": str?, "children": [...]?}],
   "rounds": [{
      "round": 1, "label": "任意のタブ名"?, "status": "open"|"answered"|"info",
@@ -40,7 +42,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from state import resolve_root  # noqa: E402  (同じディレクトリの state.py)
+from sanitize import safe_html, safe_url, to_text  # noqa: E402  (同じディレクトリの sanitize.py)
+from state import resolve_root, sanitize_topic  # noqa: E402  (同じディレクトリの state.py)
 
 OUT_DIR = resolve_root()
 DEFAULT_DASHBOARD_ROOT = "http://localhost:8787/"
@@ -71,6 +74,8 @@ header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bo
 .kicker::before { content: "❯ "; color: var(--blue); }
 h1 { font-size: 24px; line-height: 1.4; font-weight: 700; color: var(--text-bright); }
 .lede { color: var(--text-dim); margin-top: 8px; font-size: 14.5px; }
+/* 質問データの HTML(position:absolute 等)が枠の外や回答バーの上に出ないよう、描画を枠内に閉じ込める */
+header, .panel, .q-card, .free-answer, .tab-btn { position: relative; contain: paint; }
 .panel {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;
@@ -428,23 +433,24 @@ JS = """
 def render_tree(nodes: list) -> str:
     items = []
     for n in nodes:
-        badge = f'<span class="badge {n.get("status", "open")}">{"決定" if n.get("status") == "done" else "未決"}</span>'
-        note = f' <span class="note">{n["note"]}</span>' if n.get("note") else ""
+        status = "done" if n.get("status") == "done" else "open"
+        badge = f'<span class="badge {status}">{"決定" if status == "done" else "未決"}</span>'
+        note = f' <span class="note">{safe_html(n["note"])}</span>' if n.get("note") else ""
         children = f'<ul>{render_tree(n["children"])}</ul>' if n.get("children") else ""
-        items.append(f"<li>{badge}{n['label']}{note}{children}</li>")
+        items.append(f"<li>{badge}{safe_html(n.get('label'))}{note}{children}</li>")
     return "".join(items)
 
 
 def render_image(path: str, caption: str | None = None) -> str:
-    cap = f"<figcaption>{caption}</figcaption>" if caption else ""
-    return f'<figure class="q-image"><img src="{path}" alt="">{cap}</figure>'
+    cap = f"<figcaption>{safe_html(caption)}</figcaption>" if caption else ""
+    return f'<figure class="q-image"><img src="{safe_url(path)}" alt="">{cap}</figure>'
 
 
 def render_user_note(q: dict, is_open: bool) -> str:
     """質問ごとのユーザー自由記述欄。open は入力可、過去ラウンドは記入済みだけ読み取り専用。"""
     if is_open:
         return (
-            f'<textarea class="q-note" data-q="{q["id"]}" rows="2" '
+            f'<textarea class="q-note" data-q="{attr(q["id"])}" rows="2" '
             f'placeholder="補足・メモ(任意)"></textarea>'
         )
     if not q.get("user_note"):
@@ -464,22 +470,22 @@ def render_question(q: dict, is_open: bool) -> str:
     opts = []
     for o in q["options"]:
         rec = '<span class="rec-badge">➡️ 推奨</span>' if o.get("recommended") else ""
-        oimg = f'<img src="{o["image"]}" alt="">' if o.get("image") else ""
+        oimg = f'<img src="{safe_url(o["image"])}" alt="">' if o.get("image") else ""
         selected = " selected" if o["key"] in answered else ""
         disabled = "" if is_open else " disabled"
         opts.append(
-            f'<button class="opt{selected}"{disabled} data-key="{o["key"]}">'
-            f'<span class="key">({o["key"]})</span>'
-            f'<span class="body">{o["label"]}{rec}{oimg}</span></button>'
+            f'<button class="opt{selected}"{disabled} data-key="{attr(o["key"])}">'
+            f'<span class="key">({html.escape(str(o["key"]))})</span>'
+            f'<span class="body">{safe_html(o["label"])}{rec}{oimg}</span></button>'
         )
-    why = f'<div class="why"><strong>推奨理由:</strong> {q["why"]}</div>' if q.get("why") else ""
-    note = f'<div class="answer-note">{q["answer_note"]}</div>' if q.get("answer_note") else ""
+    why = f'<div class="why"><strong>推奨理由:</strong> {safe_html(q["why"])}</div>' if q.get("why") else ""
+    note = f'<div class="answer-note">{safe_html(q["answer_note"])}</div>' if q.get("answer_note") else ""
     user_note = render_user_note(q, is_open)
     return (
-        f'<div class="q-card" data-q="{q["id"]}" data-multi="{str(multi).lower()}" data-open="{str(is_open).lower()}">'
-        f'<div class="q-head"><span class="q-num">{q["id"]}</span>'
-        f'<span class="q-title">{q["title"]}</span>{multi_note}</div>'
-        f'<p class="q-body">{q["body"]}</p>{image}'
+        f'<div class="q-card" data-q="{attr(q["id"])}" data-multi="{str(multi).lower()}" data-open="{str(is_open).lower()}">'
+        f'<div class="q-head"><span class="q-num">{html.escape(str(q["id"]))}</span>'
+        f'<span class="q-title">{safe_html(q["title"])}</span>{multi_note}</div>'
+        f'<p class="q-body">{safe_html(q["body"])}</p>{image}'
         f'<div class="opts">{"".join(opts)}</div>{user_note}{why}{note}</div>'
     )
 
@@ -487,24 +493,35 @@ def render_question(q: dict, is_open: bool) -> str:
 def render_round(r: dict) -> str:
     parts = []
     if r.get("facts"):
-        items = "".join(f"<li>{f}</li>" for f in r["facts"])
+        items = "".join(f"<li>{safe_html(f)}</li>" for f in r["facts"])
         parts.append(f'<section class="panel"><h2>前提事実(AI 調査済み)</h2><ul>{items}</ul></section>')
     is_open = r.get("status") == "open"
     for q in r.get("questions", []):
         parts.append(render_question(q, is_open))
     if r.get("declarations"):
-        items = "".join(f"<li>{d}</li>" for d in r["declarations"])
+        items = "".join(f"<li>{safe_html(d)}</li>" for d in r["declarations"])
         parts.append(f'<section class="panel"><h2>宣言事項(異議は自由記述で)</h2><ul>{items}</ul></section>')
     if r.get("free_text_answer"):
         parts.append(
-            f'<div class="free-answer"><span class="label">自由記述の回答</span>{r["free_text_answer"]}</div>'
+            # ユーザーが打った文字列なのでエスケープする(改行は CSS の pre-wrap で保つ)
+            f'<div class="free-answer"><span class="label">自由記述の回答</span>{html.escape(r["free_text_answer"])}</div>'
         )
     return "".join(parts)
 
 
+def attr(value: object) -> str:
+    """属性値としてエスケープした文字列。"""
+    return html.escape(str(value), quote=True)
+
+
+def script_json(value: object) -> str:
+    """<script> に埋め込む JSON。< をエスケープして </script> で閉じられないようにする。"""
+    return json.dumps(value, ensure_ascii=False).replace("<", "\\u003c")
+
+
 def dashboard_url(topic: str, root: str | None = None) -> str:
-    """統合ページで、この題材を開く URL。root は PARALLEL_GRILL_URL(子セッションに渡る)。"""
-    base = root if root is not None else os.environ.get("PARALLEL_GRILL_URL", "")
+    """統合ページで、この題材を開く URL。root は環境変数 GRILL_URL(未設定なら localhost)。"""
+    base = root if root is not None else os.environ.get("GRILL_URL", "")
     base = base.strip() or DEFAULT_DASHBOARD_ROOT
     return f"{base.rstrip('/')}/#{topic}"
 
@@ -514,6 +531,8 @@ def main() -> None:
         sys.exit("usage: render.py <topic>.json")
     data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     topic = data["topic"]
+    if not isinstance(topic, str) or not topic or sanitize_topic(topic) != topic:
+        sys.exit(f"topic は英数字・-・_ だけで書く(80 文字まで): {topic!r}")
     rounds = data["rounds"]
     open_rounds = [r for r in rounds if r.get("status") == "open"]
     open_round = open_rounds[-1] if open_rounds else None
@@ -524,9 +543,9 @@ def main() -> None:
         label = r.get("label") or f'Round {r["round"]}'
         is_active = " active" if r is active else ""
         tabs.append(
-            f'<button class="tab-btn{is_active}" data-target="pane-{r["round"]}">{label}</button>'
+            f'<button class="tab-btn{is_active}" data-target="pane-{attr(r["round"])}">{safe_html(label)}</button>'
         )
-        panes.append(f'<div class="tab-pane{is_active}" id="pane-{r["round"]}">{render_round(r)}</div>')
+        panes.append(f'<div class="tab-pane{is_active}" id="pane-{attr(r["round"])}">{render_round(r)}</div>')
 
     open_q_count = len(open_round.get("questions", [])) if open_round else 0
     state = f'Round {open_round["round"]} / 質問 {open_q_count} 件' if open_round else "完了"
@@ -559,21 +578,21 @@ def main() -> None:
     if data.get("tree"):
         tree = f'<section class="panel"><h2>設計ツリー</h2><ul class="tree">{render_tree(data["tree"])}</ul></section>'
 
-    html = f"""<!DOCTYPE html>
+    page = f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Grill: {data["title"]}</title>
+<title>Grill: {to_text(data["title"])}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
 <style>{CSS}</style>
 </head>
 <body>
 <div class="wrap">
 <header>
-  <div class="kicker">grill session · {topic} · {state}</div>
-  <h1>{data["title"]}</h1>
-  <p class="lede">{data.get("intro", "")}</p>
+  <div class="kicker">grill session · {html.escape(topic)} · {state}</div>
+  <h1>{safe_html(data["title"])}</h1>
+  <p class="lede">{safe_html(data.get("intro", ""))}</p>
 </header>
 {tree}
 <div class="tabs">{"".join(tabs)}</div>
@@ -581,13 +600,13 @@ def main() -> None:
 </div>
 {answer_bar}
 <div id="lightbox"><img src="" alt=""></div>
-<script>{JS.replace("__CONFIG__", json.dumps(config, ensure_ascii=False))}</script>
+<script>{JS.replace("__CONFIG__", script_json(config))}</script>
 </body>
 </html>
 """
     out = OUT_DIR / f"grill-{topic}.html"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out.write_text(html, encoding="utf-8")
+    out.write_text(page, encoding="utf-8")
     print(f"{out}\n{dashboard_url(topic)}")
 
 

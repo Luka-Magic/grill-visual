@@ -3,13 +3,13 @@
 
 GET  /  /index.html   … 統合ページ(dashboard.html。スキルのディレクトリから毎回読む)
 GET  /api/state       … 全題材の状態 JSON(state.scan の結果。待ち/回答済み/完了/エラー)
-GET  /<file>.html 等  … ~/.agent/diagrams/ の静的配信(従来どおり)
-POST /submit          … 質問票の回答 JSON を ~/.agent/diagrams/answers/ に保存
+GET  /<file>.html 等  … GRILL_ROOT の静的配信
+POST /submit          … 質問票の回答 JSON を GRILL_ROOT/answers/ に保存
                         (エージェントはこのファイルの出現を監視して回答を受け取る)
 POST /api/archive     … {"topic": str, "archived": bool} を .grill-dashboard.json に保存
 
-環境変数(テスト用。通常は未設定でよい):
-  GRILL_ROOT … 配信ルート(既定 ~/.agent/diagrams)
+環境変数(通常は未設定でよい):
+  GRILL_ROOT … 配信ルート(既定 ~/.claude/grill-visual)
   GRILL_PORT … ポート(既定 8787)
 """
 from __future__ import annotations

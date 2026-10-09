@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """grill-visual 統合ページのための状態算出(純粋関数。標準ライブラリのみ)。
 
-~/.agent/diagrams/ を読み、題材ごとに「待ち / 回答済み / 完了 / エラー」を導く。
+GRILL_ROOT(既定 ~/.claude/grill-visual)を読み、題材ごとに「待ち / 回答済み / 完了 / エラー」を導く。
 判定はファイルだけから行う(サーバーにメモリ状態を持たない):
 
   waiting  … status:"open" のラウンドがあり、answers/<topic>-round-<N>.json が無い
@@ -24,12 +24,12 @@ ANSWERS_DIR = "answers"
 ARCHIVE_FILE = ".grill-dashboard.json"   # 統合ページの設定(archived / kind_prefixes)
 TIME_FMT = "%Y-%m-%dT%H:%M:%S"
 TOPIC_MAX_LEN = 80
-DEFAULT_ROOT = Path.home() / ".agent" / "diagrams"
+DEFAULT_ROOT = Path.home() / ".claude" / "grill-visual"
 
 State = Literal["waiting", "answered", "done", "error"]
 STATES: tuple[State, ...] = ("waiting", "answered", "done", "error")
 ISSUE_IN_TITLE_RE = re.compile(r"(?<![\w#])#(\d{1,6})\b")
-# topic 中の番号は先頭 0 を認めない("rules-04-github" の 04 や "tr-03-media-detail" の T03 は issue ではない)
+# topic 中の番号は先頭 0 を認めない("docs-04-setup" の 04 は issue ではない)
 ISSUE_IN_TOPIC_RE = re.compile(r"^(?:[a-z][a-z0-9]*-)?([1-9]\d{0,5})-")
 PROJECT_IN_TOPIC_RE = re.compile(r"^([a-z][a-z0-9]*)-[1-9]\d{0,5}-")
 
@@ -60,7 +60,7 @@ class Snapshot:
 # ---------------------------------------------------------------- 共通ユーティリティ
 
 def resolve_root() -> Path:
-    """配信ルート。GRILL_ROOT(テスト用)があればそれ、無ければ ~/.agent/diagrams。"""
+    """配信ルート。環境変数 GRILL_ROOT があればそれ、無ければ ~/.claude/grill-visual。"""
     return Path(os.environ.get("GRILL_ROOT") or DEFAULT_ROOT)
 
 
