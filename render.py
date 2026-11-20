@@ -22,10 +22,21 @@
         "id": "Q1", "title": str, "body": str, "multi": bool?,
         "image": "assets/<topic>/x.png"?,
         "options": [{"key": "a", "label": str, "recommended": bool?, "image": str?}],
+                                                   # 画像付きの選択肢は、広い窓(900px 以上)で横に並ぶ
         "why": str?,
         "answer": ["a"]?, "answer_note": str?,     # status=answered のとき(answer_note = AI 側の注記)
         "user_note": str?                          # 質問ごとのユーザー自由記述(送信 JSON の notes 由来)
+     } | {                                         # ルール一覧型: 1 問の中に採用/不採用を決める行が並ぶ
+        "id": "Q1", "type": "rules", "title": str, "body": str,
+        "rules": [{
+           "id": "R1", "text": str, "risk": "high"|"mid"|"low", "ears": str?, "note": str?,
+           "cases": [{"id": str?, "behavior": str, "input": str?, "expected": str?, "kind": str?}]?,
+           "user_note": str?                       # 行ごとのユーザーの 1 行コメント(notes["Q1/R1"] 由来)
+        }],
+        "answer": {"R1": "adopt"|"reject"}?, "answer_note": str?, "user_note": str?
      }]?,
+     # 回答 JSON: 通常の問いは answers[Qn] = ["a"]、ルール一覧型は answers[Qn] = {"R1": "adopt", ...}
+     # (既定は全行 adopt)。行の 1 行コメントは notes["Qn/Rm"]、問い全体のメモは notes["Qn"]。
      "declarations": [str, ...]?,
      "free_text_answer": str?
   }]
@@ -145,6 +156,54 @@ table.case td { padding: 5px 8px; border: 1px solid var(--border); vertical-alig
 .opt .key { font-family: "Consolas", monospace; font-weight: 700; color: var(--orange); flex-shrink: 0; }
 .opt .body { overflow-wrap: break-word; min-width: 0; }
 .opt img { max-width: 220px; border-radius: 4px; border: 1px solid var(--border); display: block; margin-top: 6px; cursor: zoom-in; }
+@media (min-width: 900px) {
+  /* 画像付きの選択肢は横に並べて見比べる(最大 3 列)。画像なしの選択肢は 1 行使う */
+  .opts.has-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .opts.has-images .opt:not(.has-img) { grid-column: 1 / -1; }
+  .opts.has-images .opt.has-img { flex-direction: column; align-items: stretch; }
+  .opts.has-images .opt.has-img img { max-width: 100%; }
+}
+/* ルール一覧型 */
+.rules { border-top: 1px solid var(--border); margin-top: 4px; }
+.rule { border-bottom: 1px solid var(--border); padding: 10px 0; }
+.rule-head { display: flex; gap: 10px; align-items: flex-start; }
+.risk {
+  font-family: "Consolas", monospace; font-size: 11px; border-radius: 999px; padding: 0 7px;
+  white-space: nowrap; margin-top: 4px; border: 1px solid currentColor; flex-shrink: 0;
+}
+.risk.high { color: var(--red); } .risk.mid { color: var(--orange); } .risk.low { color: var(--green); }
+.rule-main { flex: 1; min-width: 0; }
+.rule-text { color: var(--text-bright); font-size: 15px; overflow-wrap: break-word; }
+.rule.rejected .rule-text { color: var(--text-dim); text-decoration: line-through; }
+.rule-ears { font-size: 13px; border-left: 3px solid var(--blue); padding: 2px 8px; margin: 4px 0; }
+.rule-cases-toggle {
+  background: none; border: 0; color: var(--blue); font: inherit; font-size: 12.5px; cursor: pointer; padding: 0;
+}
+.rule-cases { margin-top: 6px; }
+.rule-cases .cases { display: block; overflow-x: auto; }
+.rule-ai-note { font-size: 12.5px; color: var(--text-dim); margin: 2px 0 6px; }
+.rule-ctl { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; flex-shrink: 0; }
+.switch { position: relative; width: 40px; height: 22px; display: inline-block; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--border); cursor: pointer; }
+.switch span::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+}
+.switch input:checked + span { background: var(--green); }
+.switch input:checked + span::after { left: 21px; }
+.switch input:disabled + span { cursor: default; opacity: 0.7; }
+.rule-cmt {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 5px; color: var(--text-dim);
+  font: inherit; font-size: 13px; padding: 1px 8px; cursor: pointer;
+}
+.rule-cmt.on { color: var(--blue); border-color: var(--blue); }
+.rule-note {
+  display: block; width: 100%; margin-top: 8px; font: inherit; font-size: 13.5px;
+  border: 1px solid var(--blue); border-radius: 6px; padding: 6px 10px; background: var(--bg); color: var(--text-bright);
+}
+.rule-note:focus { outline: none; }
+.rule-note[disabled] { border-color: var(--border); opacity: 1; -webkit-text-fill-color: var(--text); }
+.rules-foot { font-size: 13px; color: var(--text-dim); margin-top: 10px; }
 .rec-badge {
   display: inline-block; color: var(--green); border: 1px solid var(--green);
   border-radius: 4px; font-family: "Consolas", monospace; font-size: 11px;
@@ -220,7 +279,59 @@ JS = """
 (function () {
   var CONFIG = __CONFIG__;
   var answers = {};
-  (CONFIG.openQuestions || []).forEach(function (q) { answers[q.id] = []; });
+  function isRules(q) { return q.type === "rules"; }
+  function defaultRules(q) {
+    var a = {};
+    (q.rules || []).forEach(function (r) { a[r] = "adopt"; });
+    return a;
+  }
+  (CONFIG.openQuestions || []).forEach(function (q) { answers[q.id] = isRules(q) ? defaultRules(q) : []; });
+
+  // ---- ルール一覧型: 例の開閉・コメント欄は回答済みのタブでも動かす(読むため) ----
+  document.querySelectorAll(".rule").forEach(function (row) {
+    var cases = row.querySelector(".rule-cases");
+    var toggle = row.querySelector(".rule-cases-toggle");
+    if (cases && toggle) {
+      cases.hidden = row.getAttribute("data-cases-open") !== "true";
+      toggle.textContent = (cases.hidden ? "▸" : "▾") + toggle.textContent.slice(1);
+      toggle.addEventListener("click", function () {
+        cases.hidden = !cases.hidden;
+        toggle.textContent = (cases.hidden ? "▸" : "▾") + toggle.textContent.slice(1);
+      });
+    }
+    var cmt = row.querySelector(".rule-cmt");
+    var noteWrap = row.querySelector(".rule-note-wrap");
+    if (cmt && noteWrap) {
+      cmt.addEventListener("click", function () {
+        noteWrap.hidden = !noteWrap.hidden;
+        var input = noteWrap.querySelector("input");
+        if (!noteWrap.hidden && input && !input.disabled) input.focus();
+        cmt.classList.toggle("on", !noteWrap.hidden || !!(input && input.value.trim()));
+      });
+    }
+  });
+  function updateRulesFoot(card) {
+    var foot = card.querySelector(".rules-foot");
+    if (!foot) return;
+    var adopt = 0, reject = 0, notes = 0;
+    card.querySelectorAll(".rule").forEach(function (row) {
+      var sw = row.querySelector(".rule-adopt");
+      if (sw && sw.checked) adopt++; else reject++;
+      var input = row.querySelector(".rule-note");
+      if (input && input.value.trim()) notes++;
+    });
+    foot.textContent = "採用 " + adopt + " / 不採用 " + reject + " / コメント " + notes;
+  }
+  function syncRulesCard(card, q) {
+    card.querySelectorAll(".rule").forEach(function (row) {
+      var id = row.getAttribute("data-rule");
+      var sw = row.querySelector(".rule-adopt");
+      var adopted = answers[q.id][id] !== "reject";
+      if (sw) sw.checked = adopted;
+      row.classList.toggle("rejected", !adopted);
+    });
+    updateRulesFoot(card);
+  }
   var bar = document.getElementById("answer-string");
   var status = document.getElementById("submit-status");
 
@@ -258,6 +369,10 @@ JS = """
       var v = ta.value.trim();
       if (v) notes[ta.getAttribute("data-q")] = v;
     });
+    document.querySelectorAll('.q-card[data-open="true"] .rule-note').forEach(function (input) {
+      var v = input.value.trim();
+      if (v) notes[input.closest(".q-card").getAttribute("data-q") + "/" + input.getAttribute("data-rule")] = v;
+    });
     return notes;
   }
   function saveDraft() {
@@ -283,6 +398,27 @@ JS = """
     (CONFIG.openQuestions || []).forEach(function (q) {
       var card = document.querySelector('.q-card[data-q="' + q.id + '"][data-open="true"]');
       if (!card) return;
+      if (isRules(q)) {
+        var saved = d.answers ? d.answers[q.id] : null;
+        if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+          q.rules.forEach(function (r) {
+            if (saved[r] === "adopt" || saved[r] === "reject") answers[q.id][r] = saved[r];
+          });
+        }
+        card.querySelectorAll(".rule-note").forEach(function (input) {
+          var k = q.id + "/" + input.getAttribute("data-rule");
+          if (d.notes && typeof d.notes[k] === "string") {
+            input.value = d.notes[k];
+            input.closest(".rule-note-wrap").hidden = false;
+            var cmt = input.closest(".rule").querySelector(".rule-cmt");
+            if (cmt) cmt.classList.add("on");
+          }
+        });
+        syncRulesCard(card, q);
+        var qta = card.querySelector(".q-note");
+        if (qta && d.notes && typeof d.notes[q.id] === "string") qta.value = d.notes[q.id];
+        return;
+      }
       var keys = (d.answers && Array.isArray(d.answers[q.id])) ? d.answers[q.id] : [];
       answers[q.id] = keys.filter(function (k) {  // 今の選択肢に存在するものだけ戻す
         return typeof k === "string" && card.querySelector('.opt[data-key="' + k + '"]');
@@ -302,10 +438,15 @@ JS = """
     }
   }
 
+  function hasAnswer(q) { return isRules(q) || answers[q.id].length > 0; }
+  function describe(q) {
+    if (!isRules(q)) return q.id + ": (" + answers[q.id].join(",") + ")";
+    var rejects = q.rules.filter(function (r) { return answers[q.id][r] === "reject"; });
+    var adopt = q.rules.length - rejects.length;
+    return q.id + ": (採用 " + adopt + (rejects.length ? " / 不採用 " + rejects.join(",") : "") + ")";
+  }
   function renderBar() {
-    var parts = (CONFIG.openQuestions || [])
-      .filter(function (q) { return answers[q.id].length > 0; })
-      .map(function (q) { return q.id + ": (" + answers[q.id].join(",") + ")"; });
+    var parts = (CONFIG.openQuestions || []).filter(hasAnswer).map(describe);
     if (parts.length === 0) {
       bar.textContent = "選択肢をクリックすると回答がここに組み立てられます";
       bar.classList.add("empty");
@@ -314,6 +455,29 @@ JS = """
       bar.classList.remove("empty");
     }
   }
+
+  document.querySelectorAll('.q-card[data-open="true"][data-type="rules"]').forEach(function (card) {
+    var q = (CONFIG.openQuestions || []).filter(function (x) { return x.id === card.getAttribute("data-q"); })[0];
+    if (!q) return;
+    card.querySelectorAll(".rule").forEach(function (row) {
+      var id = row.getAttribute("data-rule");
+      var sw = row.querySelector(".rule-adopt");
+      if (sw) sw.addEventListener("change", function () {
+        answers[q.id][id] = sw.checked ? "adopt" : "reject";
+        row.classList.toggle("rejected", !sw.checked);
+        updateRulesFoot(card);
+        markDirty();
+        renderBar();
+      });
+      var input = row.querySelector(".rule-note");
+      if (input) input.addEventListener("input", function () {
+        row.querySelector(".rule-cmt").classList.toggle("on", true);
+        updateRulesFoot(card);
+        markDirty();
+      });
+    });
+    updateRulesFoot(card);
+  });
 
   document.querySelectorAll('.q-card[data-open="true"]').forEach(function (card) {
     var q = card.getAttribute("data-q");
@@ -343,9 +507,14 @@ JS = """
   var allRec = document.getElementById("all-rec");
   if (allRec) allRec.addEventListener("click", function () {
     (CONFIG.openQuestions || []).forEach(function (q) {
+      var card = document.querySelector('.q-card[data-q="' + q.id + '"][data-open="true"]');
+      if (isRules(q)) {  // ルール一覧型の推奨は「全行採用」
+        answers[q.id] = defaultRules(q);
+        syncRulesCard(card, q);
+        return;
+      }
       if (!q.recommended.length) return;
       answers[q.id] = q.recommended.slice();
-      var card = document.querySelector('.q-card[data-q="' + q.id + '"][data-open="true"]');
       card.querySelectorAll(".opt").forEach(function (o) {
         o.classList.toggle("selected", q.recommended.indexOf(o.getAttribute("data-key")) >= 0);
       });
@@ -379,7 +548,7 @@ JS = """
   submitBtn.addEventListener("click", function () {
     var freeText = freeInput.value.trim();
     var notes = collectNotes();
-    var hasAnswers = (CONFIG.openQuestions || []).some(function (q) { return answers[q.id].length > 0; });
+    var hasAnswers = (CONFIG.openQuestions || []).some(hasAnswer);
     var hasNotes = Object.keys(notes).length > 0;
     if (!hasAnswers && !freeText && !hasNotes) {
       status.textContent = "選択・メモ・自由記述のどれかを入れてください";
@@ -456,7 +625,83 @@ def render_user_note(q: dict, is_open: bool) -> str:
     )
 
 
+RISK_LABEL = {"high": "高", "mid": "中", "low": "低"}
+
+
+def render_cases_table(cases: list[dict]) -> str:
+    """例(テストケース)の横長表。1 例 = 1 行。"""
+    if not cases:
+        return ""
+    rows = "".join(
+        f'<tr><td>{c["behavior"]}</td><td>{c.get("input", "")}</td>'
+        f'<td>{c.get("expected", "")}</td><td>{c.get("kind", "")}</td></tr>'
+        for c in cases
+    )
+    return (
+        '<table class="cases"><tr><th>振る舞い</th><th>入力</th><th>期待結果</th><th>分類</th></tr>'
+        f"{rows}</table>"
+    )
+
+
+def render_rule(rule: dict, decision: str | None, is_open: bool) -> str:
+    """ルール一覧の 1 行。採用トグルは既定オン。高リスクは例を開いた状態で出す。"""
+    risk = rule.get("risk", "mid")
+    adopted = decision != "reject"
+    cases = rule.get("cases") or []
+    cases_open = risk == "high" or decision == "reject"
+    checked = " checked" if adopted else ""
+    disabled = "" if is_open else " disabled"
+    ears = f'<div class="rule-ears">{rule["ears"]}</div>' if rule.get("ears") else ""
+    toggle = (
+        f'<button type="button" class="rule-cases-toggle">▸ 例 {len(cases)} 件</button>' if cases else ""
+    )
+    ai_note = f'<div class="rule-ai-note">{rule["note"]}</div>' if rule.get("note") else ""
+    cases_html = f'<div class="rule-cases" hidden>{ai_note}{render_cases_table(cases)}</div>' if cases or ai_note else ""
+    if is_open:
+        note_input = f'<input class="rule-note" data-rule="{rule["id"]}" placeholder="1 行コメント(任意)">'
+        note_hidden, cmt_on = " hidden", ""
+    elif rule.get("user_note"):
+        # ユーザーが打った文字列なのでエスケープする
+        note_input = (
+            f'<input class="rule-note" data-rule="{rule["id"]}" disabled '
+            f'value="{html.escape(rule["user_note"], quote=True)}">'
+        )
+        note_hidden, cmt_on = "", " on"
+    else:
+        note_input, note_hidden, cmt_on = "", " hidden", ""
+    rejected = "" if adopted else " rejected"
+    return (
+        f'<div class="rule{rejected}" data-rule="{rule["id"]}" data-cases-open="{str(cases_open).lower()}">'
+        f'<div class="rule-head"><span class="risk {risk}">{RISK_LABEL.get(risk, risk)}</span>'
+        f'<div class="rule-main"><div class="rule-text">{rule["text"]}</div>{ears}{toggle}</div>'
+        f'<div class="rule-ctl"><label class="switch">'
+        f'<input type="checkbox" data-rule="{rule["id"]}" class="rule-adopt"{checked}{disabled}><span></span></label>'
+        f'<button type="button" class="rule-cmt{cmt_on}" title="1 行コメント">💬</button></div></div>'
+        f'{cases_html}<div class="rule-note-wrap"{note_hidden}>{note_input}</div></div>'
+    )
+
+
+def render_rules_question(q: dict, is_open: bool) -> str:
+    decisions = q.get("answer") or {}
+    if not isinstance(decisions, dict):
+        decisions = {}
+    rows = "".join(render_rule(r, decisions.get(r["id"]), is_open) for r in q["rules"])
+    adopt = sum(1 for r in q["rules"] if decisions.get(r["id"]) != "reject")
+    foot = f'<div class="rules-foot">採用 {adopt} / 不採用 {len(q["rules"]) - adopt}</div>'
+    why = f'<div class="why"><strong>推奨理由:</strong> {q["why"]}</div>' if q.get("why") else ""
+    note = f'<div class="answer-note">{q["answer_note"]}</div>' if q.get("answer_note") else ""
+    user_note = render_user_note(q, is_open)
+    return (
+        f'<div class="q-card" data-q="{q["id"]}" data-type="rules" data-open="{str(is_open).lower()}">'
+        f'<div class="q-head"><span class="q-num">{q["id"]}</span><span class="q-title">{q["title"]}</span></div>'
+        f'<p class="q-body">{q["body"]}</p>'
+        f'<div class="rules">{rows}</div>{foot}{user_note}{why}{note}</div>'
+    )
+
+
 def render_question(q: dict, is_open: bool) -> str:
+    if q.get("type") == "rules":
+        return render_rules_question(q, is_open)
     multi = q.get("multi", False)
     multi_note = '<span class="multi-note">複数選択可</span>' if multi else ""
     image = render_image(q["image"], q.get("image_caption")) if q.get("image") else ""
@@ -465,13 +710,15 @@ def render_question(q: dict, is_open: bool) -> str:
     for o in q["options"]:
         rec = '<span class="rec-badge">➡️ 推奨</span>' if o.get("recommended") else ""
         oimg = f'<img src="{o["image"]}" alt="">' if o.get("image") else ""
+        has_img = " has-img" if o.get("image") else ""
         selected = " selected" if o["key"] in answered else ""
         disabled = "" if is_open else " disabled"
         opts.append(
-            f'<button class="opt{selected}"{disabled} data-key="{o["key"]}">'
+            f'<button class="opt{has_img}{selected}"{disabled} data-key="{o["key"]}">'
             f'<span class="key">({o["key"]})</span>'
             f'<span class="body">{o["label"]}{rec}{oimg}</span></button>'
         )
+    opts_class = "opts has-images" if any(o.get("image") for o in q["options"]) else "opts"
     why = f'<div class="why"><strong>推奨理由:</strong> {q["why"]}</div>' if q.get("why") else ""
     note = f'<div class="answer-note">{q["answer_note"]}</div>' if q.get("answer_note") else ""
     user_note = render_user_note(q, is_open)
@@ -480,8 +727,15 @@ def render_question(q: dict, is_open: bool) -> str:
         f'<div class="q-head"><span class="q-num">{q["id"]}</span>'
         f'<span class="q-title">{q["title"]}</span>{multi_note}</div>'
         f'<p class="q-body">{q["body"]}</p>{image}'
-        f'<div class="opts">{"".join(opts)}</div>{user_note}{why}{note}</div>'
+        f'<div class="{opts_class}">{"".join(opts)}</div>{user_note}{why}{note}</div>'
     )
+
+
+def question_config(q: dict) -> dict:
+    """ブラウザ側 JS に渡す、問いごとの最小情報。"""
+    if q.get("type") == "rules":
+        return {"id": q["id"], "type": "rules", "rules": [r["id"] for r in q["rules"]], "recommended": []}
+    return {"id": q["id"], "recommended": [o["key"] for o in q["options"] if o.get("recommended")]}
 
 
 def render_round(r: dict) -> str:
@@ -534,13 +788,7 @@ def main() -> None:
         config = {
             "topic": topic,
             "openRound": open_round["round"],
-            "openQuestions": [
-                {
-                    "id": q["id"],
-                    "recommended": [o["key"] for o in q["options"] if o.get("recommended")],
-                }
-                for q in open_round.get("questions", [])
-            ],
+            "openQuestions": [question_config(q) for q in open_round.get("questions", [])],
         }
         answer_bar = (
             '<div class="answer-bar"><div class="answer-inner">'
