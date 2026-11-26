@@ -136,3 +136,29 @@ def test_options_without_images_keep_plain_classes(root: Path):
     assert '<div class="opts">' in html
     assert "has-img" not in html.split("<style>")[1].split("</style>")[0] or True  # CSS には含まれてよい
     assert 'class="opt has-img"' not in html
+
+
+def test_open_questions_get_ask_button_and_chat_box(root: Path):
+    rounds = [
+        {"round": 1, "status": "answered", "questions": [
+            {"id": "Q1", "title": "t", "body": "b", "options": [{"key": "a", "label": "A"}], "answer": ["a"]}]},
+        {"round": 2, "status": "open", "questions": [
+            {"id": "Q2", "title": "t", "body": "b", "options": [{"key": "a", "label": "A"}]},
+            rules_question(id="Q3")]},
+    ]
+    html = render_html(root, "c-1", rounds)
+    assert 'class="ask-btn" data-q="Q2"' in html and 'class="ask-btn" data-q="Q3"' in html
+    assert 'class="ask-btn" data-q="Q1"' not in html  # 回答済みのラウンドには出さない
+    assert html.count('<div class="chat" data-q=') == 2
+    assert "/api/chat?topic=" in html
+
+
+def test_image_and_rules_questions_span_full_width(root: Path):
+    img_q = {"id": "Q1", "title": "t", "body": "b", "options": [
+        {"key": "a", "label": "A", "image": "assets/x/a.png"}, {"key": "b", "label": "B"}]}
+    plain_q = {"id": "Q2", "title": "t", "body": "b", "options": [{"key": "a", "label": "A"}]}
+    html = render_html(root, "c-2", [{"round": 1, "status": "open", "questions": [img_q, plain_q, rules_question(id="Q3")]}])
+    assert 'class="q-card wide" data-q="Q1"' in html
+    assert 'class="q-card" data-q="Q2"' in html
+    assert 'class="q-card wide" data-q="Q3"' in html
+    assert "grid-template-columns: repeat(auto-fill, minmax(420px, 1fr))" in html

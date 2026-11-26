@@ -173,3 +173,44 @@ def test_handler_bug_gives_500_not_400(base: str, monkeypatch):
     monkeypatch.setattr(server.Handler, "_post_archive", boom)
     status, _, _ = post(base + "/api/archive", {"topic": "a", "archived": True})
     assert status == 500
+
+
+# ---------------------------------------------------------------- 各問のチャット
+
+def test_chat_post_then_get(base: str, root: Path):
+    status, _, body = post(f"{base}/api/chat", {"topic": "c1", "q": "Q2", "text": "B の欠点は?"})
+    assert status == 200 and json.loads(body)["message"]["from"] == "user"
+    status, headers, body = get(f"{base}/api/chat?topic=c1")
+    doc = json.loads(body)
+    assert status == 200 and headers["Cache-Control"] == "no-store"
+    assert [(m["q"], m["from"], m["text"]) for m in doc["messages"]] == [("Q2", "user", "B の欠点は?")]
+
+
+def test_chat_post_cannot_impersonate_ai(base: str, root: Path):
+    post(f"{base}/api/chat", {"topic": "c2", "q": "Q1", "text": "hi", "from": "ai"})
+    _, _, body = get(f"{base}/api/chat?topic=c2")
+    assert json.loads(body)["messages"][0]["from"] == "user"
+
+
+@pytest.mark.parametrize("doc", [
+    {"topic": "c3", "q": "Q1", "text": ""},
+    {"topic": "c3", "q": "Q 1", "text": "x"},
+    {"topic": "../x", "q": "Q1", "text": "x"},
+    {"q": "Q1", "text": "x"},
+])
+def test_chat_post_rejects_bad_input(base: str, doc: dict):
+    status, _, _ = post(f"{base}/api/chat", doc)
+    assert status == 400
+
+
+def test_chat_get_unknown_topic_is_empty(base: str):
+    _, _, body = get(f"{base}/api/chat?topic=none")
+    assert json.loads(body) == {"messages": []}
+
+
+def test_chat_get_bad_topic_is_400(base: str):
+    try:
+        get(f"{base}/api/chat?topic=..%2Fx")
+        raise AssertionError("expected 400")
+    except urllib.error.HTTPError as err:
+        assert err.code == 400

@@ -7,6 +7,9 @@ GET  /<file>.html 等  … ~/.agent/diagrams/ の静的配信(従来どおり)
 POST /submit          … 質問票の回答 JSON を ~/.agent/diagrams/answers/ に保存
                         (エージェントはこのファイルの出現を監視して回答を受け取る)
 POST /api/archive     … {"topic": str, "archived": bool} を .grill-dashboard.json に保存
+GET  /api/chat?topic= … その題材の各問のチャット({"messages": [...]})
+POST /api/chat        … {"topic": str, "q": "Q3", "text": str} をユーザーの発言として追記
+                        (AI は chat.py watch で受け取り、chat.py reply で返事を書く)
 
 環境変数(テスト用。通常は未設定でよい):
   GRILL_ROOT … 配信ルート(既定 ~/.agent/diagrams)
@@ -22,7 +25,9 @@ import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
+import chat
 import state
 
 ROOT = state.resolve_root()
@@ -88,6 +93,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_dashboard()
         elif path == "/api/state":
             self._send_json(state.snapshot_to_dict(state.scan(self.root)))
+        elif path == "/api/chat":
+            self._get_chat()
         elif path.startswith("/api/"):
             self.send_error(404)
         else:
@@ -103,6 +110,16 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self._send_bytes(body, "text/html; charset=utf-8")
 
+    def _get_chat(self) -> None:
+        query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        topic = (query.get("topic") or [""])[0]
+        try:
+            messages = chat.read(self.root, topic)
+        except ValueError as exc:
+            self.send_error(400, str(exc))
+            return
+        self._send_json({"messages": messages})
+
     def do_GET(self) -> None:
         if not self._route_get(self.path.split("?", 1)[0]):
             super().do_GET()
@@ -115,7 +132,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        handlers = {"/submit": self._post_submit, "/api/archive": self._post_archive}
+        handlers = {"/submit": self._post_submit, "/api/archive": self._post_archive, "/api/chat": self._post_chat}
         handler = handlers.get(path)
         if handler is None:
             self.send_error(404)
@@ -124,7 +141,7 @@ class Handler(SimpleHTTPRequestHandler):
             handler(self._read_json_body())
         except (ValueError, TypeError, KeyError) as exc:  # 入力の問題。理由をブラウザ側に返す(ローカル専用)
             self.send_error(400, str(exc))
-        except Exception as exc:  # noqa: BLE001 — サーバー側のバグ。400 と区別してログに残す
+        except Exception as exc:
             self.log_error("%s %s: %s: %s", self.command, path, type(exc).__name__, exc)
             self.send_error(500, "internal error")
 
@@ -145,6 +162,11 @@ class Handler(SimpleHTTPRequestHandler):
         with _ARCHIVE_LOCK:
             current = state.set_archived(self.root, topic, archived)
         self._send_json({"ok": True, "archived": sorted(current)})
+
+    def _post_chat(self, doc: dict) -> None:
+        # 送り手はブラウザからは常に user。AI の返事は chat.py reply だけが書く
+        msg = chat.append(self.root, doc["topic"], doc.get("q", ""), "user", doc.get("text", ""))
+        self._send_json({"ok": True, "message": msg})
 
     def log_message(self, *args) -> None:
         pass  # アクセスログ不要(常駐でログ肥大させない)

@@ -54,6 +54,8 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
      **選択肢に画像を付けると、窓幅 900px 以上では画像付きの選択肢が横に並ぶ(最大 3 列)。**
      画像なしの選択肢は 1 行使う。構造の違う案を見比べる問いは、案ごとに選択肢 + 画像にする
      (クリックで原寸表示される)。
+   - **広い画面(質問票の幅 960px 以上)では、問いのカードが 2〜3 列に並ぶ。** 画像(モック)付きの問いと
+     ルール一覧型の問いは、狭い列では見にくいので 1 行を使い切る。前提事実・宣言事項も 1 行を使う。
 3. **レンダー**: `python3 ~/.claude/skills/grill-visual/render.py <topic>.json`
    → `~/.agent/diagrams/grill-<topic>.html`(1 題材 1 ファイル・URL 固定)。
 4. **配信**: `~/.claude/skills/grill-visual/serve.sh` を実行(冪等)。
@@ -68,10 +70,18 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
    と短く添える。自由記述・選択肢外の回答を必ず歓迎する。質問ごとのメモ欄と
    画面下の全体自由記述欄があり、どちらも送信 JSON に載る。送信が成功すると
    ボタンは「送信済み」で無効化され、失敗すると「送信」に戻って再試行できる。
-6. **回答待ち**: Monitor で回答ファイルを監視する(1 回きりの通知で良いので
-   until ループ + exit):
-   `until [ -f "$HOME/.agent/diagrams/answers/<topic>-round-<N>.json" ]; do sleep 1; done; echo 受信`
-   ユーザーがチャットで直接回答した場合は TaskStop で監視を止める。
+6. **回答待ちと、各問のチャット**: Monitor で次を動かす(チャットと回答の両方を 1 本で見る):
+   `python3 ~/.claude/skills/grill-visual/chat.py watch <topic> <N>`
+   - ユーザーが質問票の各問の「聞く」から質問すると、`[chat Q3] 本文` の 1 行が届く。
+     すぐに答える: `python3 ~/.claude/skills/grill-visual/chat.py reply <topic> Q3 "返事"`。
+     返事は数秒以内にその問いの会話欄に出る(本文はテキストとして表示。改行は `$'…\n…'` で渡せる)。
+     返事は短く、その問いの判断材料に絞る。答えるために調べ物が要るなら調べてから返す。
+     選択肢や推奨を変えるべきだと分かったら、返事でそう伝え、次ラウンドで直す(開いている質問票は書き換えない)
+   - 回答ファイルが届くと `回答が届いた: …` を印字して監視は終わる。
+   - チャットは回答の送信とは独立している。ユーザーは聞きながら選び、最後にまとめて送信する。
+     会話の中身(`~/.agent/diagrams/chat/<topic>.jsonl`)も次ラウンドを作るときに読み、
+     決まったことは `answer_note` や次の問いに反映する
+   - ユーザーがチャットで直接回答した場合は TaskStop で監視を止める。
 7. **次ラウンド**: 回答 JSON を Read → データ JSON を更新(現行ラウンドを
    answered 化・次ラウンド追加・ツリー更新)→ 再レンダー。URL は変わらない。
    回答 JSON は `{"answers": {"Q1": ["a"]}, "notes": {"Q1": "…"}, "free_text": "…"}`
@@ -114,8 +124,10 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
   (ThreadingHTTPServer。127.0.0.1:8787。`GRILL_ROOT` / `GRILL_PORT` はテスト用)
 - `state.py` — 題材ごとの状態算出(純粋関数)
 - `dashboard.html` — 統合ページ(単一ファイル。CSS・JS 内蔵)
+- `chat.py` — 各問のチャットの保存(`chat/<topic>.jsonl`)と、AI 側の CLI(`watch` / `reply`)
 - `docs/design/2026-11-27-design-v2.md` — 画面の設計(色・書体・配置の仕様。render.py と dashboard.html はこれに従う)
-- `serve.sh` — サーバーの冪等起動(ポート衝突・二重起動を検知)
+- `serve.sh` — サーバーの冪等起動(ポート衝突・二重起動を検知)。`server.py` や `chat.py` を直したら
+  `serve.sh --restart` で起動し直す(`render.py`・`dashboard.html` の変更は再起動なしで反映される)
 - `tests/` — `uvx pytest -q tests`(state / server / render)
 
 ## トラブルシューティング(実際に踏んだもの)

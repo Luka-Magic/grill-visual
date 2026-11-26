@@ -253,6 +253,46 @@ table.cases td:first-child { color: var(--text); }
 #free-text::placeholder { color: var(--mute); }
 #submit-status { font-size: 12.5px; color: var(--done); text-align: right; }
 #submit-status:empty { display: none; }
+/* 各問のチャット */
+.ask-btn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px;
+  background: none; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; color: var(--sub); cursor: pointer; white-space: nowrap;
+}
+.ask-btn:hover { color: var(--text); background: var(--hover); }
+.ask-btn.on { color: var(--accent); border-color: var(--accent); }
+.ask-btn.unread::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.ask-count { font-family: var(--mono); font-size: 11px; color: var(--mute); }
+.ask-count:empty { display: none; }
+.chat { border-top: 1px dashed var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.chat[hidden] { display: none; }
+.chat-log { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
+.chat-log:empty { display: none; }
+.msg { max-width: 88%; padding: 7px 11px; border-radius: 8px; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: var(--sel-bg); color: var(--text); border-bottom-right-radius: 2px; }
+.msg.ai { align-self: flex-start; background: var(--input); color: var(--text); border: 1px solid var(--line2); border-bottom-left-radius: 2px; }
+.msg .who { display: block; font-size: 11px; color: var(--mute); margin-bottom: 2px; }
+.msg.ai .who { color: var(--review); }
+.chat-wait { font-size: 12px; color: var(--mute); }
+.chat-wait[hidden] { display: none; }
+.chat-form { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 13.5px; line-height: 1.5; border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 12px; background: var(--input); color: var(--text); resize: none; field-sizing: content; min-height: 38px; max-height: 160px;
+}
+.chat-input:focus { outline: none; border-color: var(--accent); }
+.chat-input::placeholder { color: var(--mute); }
+.chat-send { border: 1px solid var(--line); color: var(--text); }
+.chat-hint { font-size: 11.5px; color: var(--mute); }
+.chat-err { font-size: 12px; color: var(--err); }
+.chat-err:empty { display: none; }
+/* 広い画面: 問いを 2〜3 列に並べる。画像(モック)付き・ルール一覧型・パネルは 1 行を使い切る */
+@media (min-width: 960px) {
+  .wrap { max-width: 1480px; }
+  header .lede, header h1 { max-width: 900px; }
+  .tab-pane.active { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); align-items: start; }
+  .tab-pane.active > .panel, .tab-pane.active > .free-answer, .tab-pane.active > .q-card.wide { grid-column: 1 / -1; }
+  .answer-inner { max-width: 1480px; }
+}
 #lightbox { display: none; position: fixed; inset: 0; background: rgba(12, 11, 9, 0.9); z-index: 50; cursor: zoom-out; padding: 30px; }
 #lightbox.show { display: flex; align-items: center; justify-content: center; }
 #lightbox img { max-width: 100%; max-height: 100%; border-radius: 6px; }
@@ -347,6 +387,79 @@ JS = """
     });
   });
   if (lightbox) lightbox.addEventListener("click", function () { lightbox.classList.remove("show"); });
+
+  // ---- 各問のチャット(回答の送信とは独立) ----
+  (function setupChat() {
+    var boxes = {};
+    document.querySelectorAll(".chat").forEach(function (box) { boxes[box.getAttribute("data-q")] = box; });
+    if (!Object.keys(boxes).length || !CONFIG.topic) return;
+    var counts = {};      // q → 表示済みの発言数
+    var lastText = "";
+    function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+    function render(messages) {
+      var byQ = {};
+      messages.forEach(function (m) { (byQ[m.q] = byQ[m.q] || []).push(m); });
+      Object.keys(boxes).forEach(function (q) {
+        var box = boxes[q], list = byQ[q] || [];
+        var btn = document.querySelector('.ask-btn[data-q="' + q + '"]');
+        if (list.length === counts[q]) return;
+        var log = box.querySelector(".chat-log");
+        var frag = document.createDocumentFragment();
+        list.forEach(function (m) {
+          var div = el("div", "msg " + (m.from === "ai" ? "ai" : "user"));
+          div.appendChild(el("span", "who", m.from === "ai" ? "AI" : "あなた"));
+          div.appendChild(document.createTextNode(m.text));  // 本文は常にテキストとして描く
+          frag.appendChild(div);
+        });
+        log.replaceChildren(frag);
+        log.scrollTop = log.scrollHeight;
+        var last = list[list.length - 1];
+        box.querySelector(".chat-wait").hidden = !last || last.from !== "user";
+        if (btn) {
+          btn.querySelector(".ask-count").textContent = list.length ? String(list.length) : "";
+          var gotReply = counts[q] !== undefined && last && last.from === "ai";
+          if (gotReply && box.hidden) btn.classList.add("unread");
+        }
+        counts[q] = list.length;
+      });
+    }
+    function poll() {
+      return fetch("/api/chat?topic=" + encodeURIComponent(CONFIG.topic), { cache: "no-store" })
+        .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.text(); })
+        .then(function (text) { if (text !== lastText) { lastText = text; render(JSON.parse(text).messages || []); } })
+        .catch(function () { /* サーバーが無い(ファイルを直接開いた)ときは黙って待つ */ });
+    }
+    function send(q) {
+      var box = boxes[q], input = box.querySelector(".chat-input"), err = box.querySelector(".chat-err");
+      var text = input.value.trim();
+      if (!text) return;
+      var btn = box.querySelector(".chat-send");
+      btn.disabled = true; err.textContent = "";
+      fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: CONFIG.topic, q: q, text: text }) })
+        .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); input.value = ""; return poll(); })
+        .catch(function (e) { err.textContent = "送れませんでした(" + e.message + ")。チャットに直接書いてもかまいません"; })
+        .then(function () { btn.disabled = false; input.focus(); });
+    }
+    document.querySelectorAll(".ask-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var box = boxes[btn.getAttribute("data-q")];
+        box.hidden = !box.hidden;
+        btn.classList.toggle("on", !box.hidden);
+        btn.classList.remove("unread");
+        if (!box.hidden) box.querySelector(".chat-input").focus();
+      });
+    });
+    Object.keys(boxes).forEach(function (q) {
+      var box = boxes[q], input = box.querySelector(".chat-input");
+      box.querySelector(".chat-send").addEventListener("click", function () { send(q); });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(q); }
+      });
+    });
+    poll();
+    setInterval(function () { if (document.visibilityState === "visible") poll(); }, 3000);
+  })();
 
   if (!bar) return;  // 回答対象の open ラウンドが無いページ(サマリ等)
 
@@ -658,9 +771,28 @@ def render_q_head(q: dict, is_open: bool, multi: bool = False) -> str:
     """問いカードの上段(Q 番号・複数選択可・回答済み)と題。"""
     multi_note = '<span class="multi-note">複数選択可</span>' if multi else ""
     answered = '<span class="q-answered">✓ 回答済み</span>' if not is_open and q.get("answer") else ""
+    ask = (
+        f'<button type="button" class="ask-btn" data-q="{q["id"]}" title="この問いについて AI に聞く">'
+        '聞く<span class="ask-count"></span></button>'
+    ) if is_open else ""
     return (
-        f'<div class="q-head"><span class="q-num">{q["id"]}</span>{multi_note}{answered}</div>'
+        f'<div class="q-head"><span class="q-num">{q["id"]}</span>{multi_note}{answered}{ask}</div>'
         f'<h3 class="q-title">{q["title"]}</h3>'
+    )
+
+
+def render_chat(q: dict, is_open: bool) -> str:
+    """各問の会話欄(open のラウンドだけ)。中身はブラウザが /api/chat から描く。"""
+    if not is_open:
+        return ""
+    return (
+        f'<div class="chat" data-q="{q["id"]}" hidden><div class="chat-log"></div>'
+        '<div class="chat-wait" hidden>AI の返事を待っています…</div>'
+        '<div class="chat-form"><textarea class="chat-input" rows="1" '
+        'placeholder="この問いについて AI に聞く(Enter で送信、Shift+Enter で改行)"></textarea>'
+        '<button type="button" class="btn chat-send">送る</button></div>'
+        '<div class="chat-err"></div>'
+        '<div class="chat-hint">回答の送信とは別です。AI が質問票を見ていれば、ここに返事が出ます。</div></div>'
     )
 
 
@@ -737,9 +869,10 @@ def render_rules_question(q: dict, is_open: bool) -> str:
     foot = f'<div class="rules-foot">採用 {adopt} / 不採用 {len(q["rules"]) - adopt}</div>'
     user_note = render_user_note(q, is_open)
     return (
-        f'<div class="q-card" data-q="{q["id"]}" data-type="rules" data-open="{str(is_open).lower()}">'
+        f'<div class="q-card wide" data-q="{q["id"]}" data-type="rules" data-open="{str(is_open).lower()}">'
         f'{render_q_head(q, is_open)}<p class="q-body">{q["body"]}</p>'
-        f'<div class="rules">{rows}</div>{foot}{user_note}{render_why(q)}{render_answer_note(q)}</div>'
+        f'<div class="rules">{rows}</div>{foot}{user_note}{render_why(q)}{render_answer_note(q)}'
+        f'{render_chat(q, is_open)}</div>'
     )
 
 
@@ -771,10 +904,13 @@ def render_question(q: dict, is_open: bool) -> str:
     hint = '<div class="opt-hint">複数選べます</div>' if multi else '<div class="opt-hint">1 つ選びます</div>'
     why = "" if is_open else render_why(q)
     user_note = render_user_note(q, is_open)
+    # 画像(モック)付きの問いは、狭い列だと見にくいので広い画面でも 1 行を使い切る
+    wide = " wide" if q.get("image") or opts_class != "opts" else ""
     return (
-        f'<div class="q-card" data-q="{q["id"]}" data-multi="{str(multi).lower()}" data-open="{str(is_open).lower()}">'
+        f'<div class="q-card{wide}" data-q="{q["id"]}" data-multi="{str(multi).lower()}" data-open="{str(is_open).lower()}">'
         f'{render_q_head(q, is_open, multi)}<p class="q-body">{q["body"]}</p>{image}'
-        f'{hint}<div class="{opts_class}">{"".join(opts)}</div>{user_note}{why}{render_answer_note(q)}</div>'
+        f'{hint}<div class="{opts_class}">{"".join(opts)}</div>{user_note}{why}{render_answer_note(q)}'
+        f'{render_chat(q, is_open)}</div>'
     )
 
 
