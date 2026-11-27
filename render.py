@@ -202,7 +202,11 @@ table.cases td:first-child { color: var(--text); }
 .rule-cases-toggle { background: none; border: 0; color: var(--mute); font-size: 12px; cursor: pointer; padding: 0; }
 .rule-cases-toggle:hover { color: var(--text); }
 .rule-cases { margin-top: 8px; }
-.rule-cases .cases { display: block; overflow-x: auto; }
+.rule-cases .cases { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.cases li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13.5px; }
+.cases .do { color: var(--text); }
+.cases .to { color: var(--mute); align-self: center; }
+.cases .then { color: var(--sub); }
 .rule-ai-note { font-size: 12.5px; color: var(--sub); margin: 2px 0 8px; }
 .rule-ctl { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; flex-shrink: 0; }
 .switch { position: relative; width: 40px; height: 22px; display: inline-block; }
@@ -819,12 +823,16 @@ RISK_LABEL = {"high": "高", "mid": "中", "low": "低"}
 
 
 def render_cases_table(cases: list[dict]) -> str:
-    """例(テストケース)の表。1 例 = 1 行で、振る舞いと期待する結果だけを自然な文で見せる。
-    入力・分類はデータには残すが、人が判断するのに要らないので表には出さない。"""
+    """例(テストケース)のリスト。1 例 = 1 行で「振る舞い → 期待する結果」を自然な文で見せる。
+    入力・分類はデータには残すが、人が判断するのに要らないので出さない。"""
     if not cases:
         return ""
-    rows = "".join(f'<tr><td>{c["behavior"]}</td><td>{c.get("expected", "")}</td></tr>' for c in cases)
-    return f'<table class="cases"><tr><th>振る舞い</th><th>期待する結果</th></tr>{rows}</table>'
+    items = "".join(
+        f'<li><span class="do">{c["behavior"]}</span>{icon("arrow-right", "ic to")}'
+        f'<span class="then">{c.get("expected", "")}</span></li>'
+        for c in cases
+    )
+    return f'<ul class="cases">{items}</ul>'
 
 
 

@@ -97,7 +97,7 @@ def test_rules_question_renders_rows_with_defaults(root: Path):
     assert 'data-rule="R2" data-cases-open="false"' in html
     # 行頭にリスク、例の表、AI 注記、1 行コメント欄
     assert '<span class="risk high">高</span>' in html
-    assert "<table class=\"cases\">" in html and "一覧を見られない" in html
+    assert '<ul class="cases">' in html and "一覧を見られない" in html
     assert "GET /api/x" not in html  # 入力は表に出さない(振る舞いと期待する結果だけ)
     assert "境界は 8 日" in html
     assert 'class="rule-note" data-rule="R1"' in html
