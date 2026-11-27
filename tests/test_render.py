@@ -147,8 +147,8 @@ def test_open_questions_get_ask_button_and_chat_box(root: Path):
             rules_question(id="Q3")]},
     ]
     html = render_html(root, "c-1", rounds)
-    assert 'class="ask-btn" data-q="Q2"' in html and 'class="ask-btn" data-q="Q3"' in html
-    assert 'class="ask-btn" data-q="Q1"' not in html  # 回答済みのラウンドには出さない
+    assert 'class="note-ask" data-q="Q2"' in html and 'class="note-ask" data-q="Q3"' in html
+    assert 'class="note-ask" data-q="Q1"' not in html  # 回答済みのラウンドには出さない
     assert html.count('<div class="chat" data-q=') == 2
     assert "/api/chat?topic=" in html
 

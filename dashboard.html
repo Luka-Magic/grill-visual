@@ -46,6 +46,7 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
 .brand { display: flex; justify-content: space-between; align-items: baseline; }
 .brand b { font-weight: 600; font-size: 15px; }
 .brand small { color: var(--mute); font-size: 12px; margin-left: 8px; }
+.brand .time, .bar .t { display: inline-flex; align-items: center; gap: 4px; }
 .brand .time { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--mute); }
 .inp { width: 100%; background: var(--input); border: 1px solid var(--field-line); border-radius: 6px; padding: 8px 12px; font-size: 13px; color: var(--text); min-width: 0; }
 .inp:focus { border-color: var(--accent); }
@@ -96,8 +97,9 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
 .rq .rd { background: var(--line); color: var(--text); }
 .rq .qc { color: var(--sub); min-width: 34px; }
 .rq svg { width: 12px; height: 12px; flex: none; }
-.pairs { display: flex; gap: 16px; margin: 0; }
+.pairs { display: flex; gap: 16px; margin: 0; border-left: 1px solid var(--line); padding-left: 16px; }
 .pairs div { display: flex; gap: 6px; min-width: 0; }
+.pairs div + div { border-left: 1px solid var(--line); padding-left: 16px; }
 .pairs dt { color: var(--mute); }
 .pairs .short { display: none; }
 .pairs dd { margin: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
@@ -167,7 +169,7 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
 
 <aside id="side">
   <div class="side-top">
-    <div class="brand"><span><b>grill</b><small>質問票</small></span><span class="time" id="side-time"></span></div>
+    <div class="brand"><span><b>grill-visual</b></span><span class="time" id="side-time"></span></div>
     <label class="search"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" /></svg><input id="q" class="inp" type="search" placeholder="タイトル・topic で検索" autocomplete="off" aria-label="タイトル・topic で検索"></label>
     <div class="row">
       <select id="project" class="inp"><option value="">プロジェクト: すべて</option></select>
@@ -312,9 +314,9 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
     var ms = Date.now() - new Date(iso).getTime();
     if (isNaN(ms)) return shortTime(iso);
     var m = Math.floor(ms / 60000);
-    if (m < 1) return "今";
-    if (m < 60) return m + "分前";
-    if (m < 1440) return Math.floor(m / 60) + "時間前";
+    if (m < 1) return "now";
+    if (m < 60) return m + "m ago";
+    if (m < 1440) return Math.floor(m / 60) + "h ago";
     return iso.slice(5, 10).replace("-", "/");
   }
   // 一覧の 2 行目: 左にプロジェクト、右端に(題名に #N が無いときだけ)issue 番号とラウンド。
@@ -373,7 +375,7 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
     return node;
   }
   // Lucide(ISC ライセンス、lucide-static 0.460.0)。質問票側は icons.py に同じ形で持つ
-  var ICONS = {"archive": "<rect width=\"20\" height=\"5\" x=\"2\" y=\"3\" rx=\"1\" /> <path d=\"M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8\" /> <path d=\"M10 12h4\" />", "archive-restore": "<rect width=\"20\" height=\"5\" x=\"2\" y=\"3\" rx=\"1\" /> <path d=\"M4 8v11a2 2 0 0 0 2 2h2\" /> <path d=\"M20 8v11a2 2 0 0 1-2 2h-2\" /> <path d=\"m9 15 3-3 3 3\" /> <path d=\"M12 12v9\" />"};
+  var ICONS = {"refresh-cw": "<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\" /> <path d=\"M21 3v5h-5\" /> <path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\" /> <path d=\"M8 16H3v5\" />", "archive": "<rect width=\"20\" height=\"5\" x=\"2\" y=\"3\" rx=\"1\" /> <path d=\"M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8\" /> <path d=\"M10 12h4\" />", "archive-restore": "<rect width=\"20\" height=\"5\" x=\"2\" y=\"3\" rx=\"1\" /> <path d=\"M4 8v11a2 2 0 0 0 2 2h2\" /> <path d=\"M20 8v11a2 2 0 0 1-2 2h-2\" /> <path d=\"m9 15 3-3 3 3\" /> <path d=\"M12 12v9\" />"};
   function svgIcon(name) {
     var tpl = document.createElement("template");
     tpl.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + "</svg>";
@@ -468,7 +470,9 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
     var waiting = counts.waiting || 0;
     document.title = waiting ? "[回答待ち " + waiting + "] Grill" : "Grill";
     els.topCount.textContent = "回答待ち " + waiting;
-    els.sideTime.textContent = lastGeneratedAt ? lastGeneratedAt.slice(11, 16) + " 更新" : "";
+    els.sideTime.replaceChildren();
+    if (lastGeneratedAt) els.sideTime.append(svgIcon("refresh-cw"), lastGeneratedAt.slice(11, 16));
+    els.sideTime.title = lastGeneratedAt ? "一覧を更新した時刻" : "";
     setFoot(counts.error ? "読めないファイル " + counts.error + " 件" : "");
   }
   function renderTopBar(t) {
@@ -477,7 +481,9 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
       els.topState.className = "st " + t.state;
       els.topState.appendChild(document.createTextNode(STATE_LABEL[t.state] || t.state));
       fillBarMeta(els.topMeta, t);
-      els.topTime.textContent = t.updated_at ? shortTime(t.updated_at) + " 更新" : "";
+      els.topTime.replaceChildren();
+      if (t.updated_at) els.topTime.append(svgIcon("refresh-cw"), shortTime(t.updated_at));
+      els.topTime.title = t.updated_at ? "この質問票を更新した時刻" : "";
       els.topArch.hidden = false;
       els.topArch.replaceChildren(svgIcon(t.archived ? "archive-restore" : "archive"), document.createTextNode(t.archived ? "一覧に戻す" : "アーカイブ"));
     } else {
@@ -639,7 +645,7 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
   });
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") fetchState(); });
   setInterval(function () { if (document.visibilityState === "visible") fetchState(); }, POLL_MS);
-  setInterval(renderList, 60000);  // 「n分前」を進める
+  setInterval(renderList, 60000);  // 「5m ago」を進める
 
   applyFilterUi();
   onHashChange();

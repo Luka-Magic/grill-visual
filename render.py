@@ -145,7 +145,7 @@ table.cases td:first-child { color: var(--text); }
 .q-card { background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 24px 24px 20px; display: flex; flex-direction: column; gap: 16px; }
 .q-head { display: flex; align-items: flex-start; gap: 12px; }
 .q-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12px; flex-wrap: wrap; justify-content: flex-end; padding-top: 4px; }
-.q-num { margin-right: 8px; font-variant-numeric: tabular-nums; }
+.q-num { display: inline-block; margin-right: 8px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 13px; line-height: 20px; color: var(--sub); vertical-align: 2px; font-variant-numeric: tabular-nums; }
 .multi-note { color: var(--sub); border: 1px solid var(--line); border-radius: 4px; padding: 0 8px; white-space: nowrap; }
 .q-answered { color: var(--done); white-space: nowrap; }
 .q-title { flex: 1; min-width: 0; font-size: 17.5px; line-height: 1.5; font-weight: 600; color: var(--text); text-wrap: balance; overflow-wrap: break-word; }
@@ -168,7 +168,7 @@ table.cases td:first-child { color: var(--text); }
 .q-card[data-multi="true"] .opt .key { border-radius: 4px; }
 .opt .body { display: flex; flex-direction: column; gap: 4px; padding-top: 2px; min-width: 0; overflow-wrap: break-word; }
 .opt .why-inline { font-size: 12.5px; line-height: 1.6; color: var(--sub); font-weight: 400; }
-.rec-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--done); white-space: nowrap; padding-top: 4px; }
+.rec-badge { display: inline-flex; align-items: center; font-size: 12px; font-weight: 600; color: var(--done); white-space: nowrap; border: 1px solid var(--done); border-radius: 999px; padding: 0 8px; line-height: 20px; margin-top: 2px; }
 .opt.selected { border-color: var(--accent); background: var(--sel-bg); }
 .opt.selected .key { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .opt.selected .body { font-weight: 600; }
@@ -273,13 +273,15 @@ table.cases td:first-child { color: var(--text); }
 #submit-status { font-size: 12.5px; color: var(--done); text-align: right; }
 #submit-status:empty { display: none; }
 /* 各問のチャット */
-.ask-btn {
-  display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 12px;
-  min-height: 32px; background: none; border: 1px solid var(--line); border-radius: 999px; padding: 0 12px; color: var(--sub); cursor: pointer; white-space: nowrap;
+.note-row { display: flex; gap: 8px; align-items: flex-end; }
+.note-row .q-note { flex: 1; min-width: 0; }
+.note-ask {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font: inherit; font-size: 13px;
+  background: none; border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--sub); cursor: pointer; white-space: nowrap;
 }
-.ask-btn:hover { color: var(--text); background: var(--hover); }
-.ask-btn.on { color: var(--accent); border-color: var(--accent); }
-.ask-btn.unread::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.note-ask:hover { color: var(--text); background: var(--hover); }
+.note-ask:disabled { color: var(--mute); cursor: not-allowed; }
+.note-ask.unread::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .ask-count { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--mute); }
 .ask-count:empty { display: none; }
 .chat { border-top: 1px dashed var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -293,15 +295,6 @@ table.cases td:first-child { color: var(--text); }
 .msg.ai .who { color: var(--review); }
 .chat-wait { font-size: 12px; color: var(--mute); }
 .chat-wait[hidden] { display: none; }
-.chat-form { display: flex; gap: 8px; align-items: flex-end; }
-.chat-input {
-  flex: 1; min-width: 0; font: inherit; font-size: 13.5px; line-height: 1.5; border: 1px solid var(--field-line); border-radius: 6px;
-  padding: 8px 12px; background: var(--input); color: var(--text); resize: none; field-sizing: content; min-height: 38px; max-height: 160px;
-}
-.chat-input:focus { border-color: var(--accent); }
-.chat-input::placeholder { color: var(--mute); }
-.chat-send { border: 1px solid var(--line); color: var(--text); }
-.chat-hint { font-size: 11.5px; color: var(--mute); }
 .chat-err { font-size: 12px; color: var(--err); }
 .chat-err:empty { display: none; }
 /* 広い画面: 問いを 2〜3 列に並べる。画像(モック)付き・ルール一覧型・パネルは 1 行を使い切る */
@@ -420,7 +413,7 @@ JS = """
       messages.forEach(function (m) { (byQ[m.q] = byQ[m.q] || []).push(m); });
       Object.keys(boxes).forEach(function (q) {
         var box = boxes[q], list = byQ[q] || [];
-        var btn = document.querySelector('.ask-btn[data-q="' + q + '"]');
+        var btn = document.querySelector('.note-ask[data-q="' + q + '"]');
         if (list.length === counts[q]) return;
         var log = box.querySelector(".chat-log");
         var frag = document.createDocumentFragment();
@@ -434,6 +427,7 @@ JS = """
         log.scrollTop = log.scrollHeight;
         var last = list[list.length - 1];
         box.querySelector(".chat-wait").hidden = !last || last.from !== "user";
+        box.hidden = !list.length;
         if (btn) {
           btn.querySelector(".ask-count").textContent = list.length ? String(list.length) : "";
           var gotReply = counts[q] !== undefined && last && last.from === "ai";
@@ -449,32 +443,27 @@ JS = """
         .catch(function () { /* サーバーが無い(ファイルを直接開いた)ときは黙って待つ */ });
     }
     function send(q) {
-      var box = boxes[q], input = box.querySelector(".chat-input"), err = box.querySelector(".chat-err");
-      var text = input.value.trim();
-      if (!text) return;
-      var btn = box.querySelector(".chat-send");
+      var box = boxes[q], err = box.querySelector(".chat-err");
+      var input = document.querySelector('.q-note[data-q="' + q + '"]');
+      var btn = document.querySelector('.note-ask[data-q="' + q + '"]');
+      var text = input ? input.value.trim() : "";
+      if (!text) { if (input) input.focus(); return; }
       btn.disabled = true; err.textContent = "";
       fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: CONFIG.topic, q: q, text: text }) })
-        .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); input.value = ""; return poll(); })
-        .catch(function (e) { err.textContent = "送れませんでした(" + e.message + ")。チャットに直接書いてもかまいません"; })
-        .then(function () { btn.disabled = false; input.focus(); });
+        .then(function (res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          // 聞いた内容はメモから外す(メモとして回答に混ざらないように)
+          input.value = "";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          box.hidden = false;
+          return poll();
+        })
+        .catch(function (e) { box.hidden = false; err.textContent = "送れませんでした(" + e.message + ")。チャットに直接書いてもかまいません"; })
+        .then(function () { btn.disabled = false; btn.classList.remove("unread"); });
     }
-    document.querySelectorAll(".ask-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var box = boxes[btn.getAttribute("data-q")];
-        box.hidden = !box.hidden;
-        btn.classList.toggle("on", !box.hidden);
-        btn.classList.remove("unread");
-        if (!box.hidden) box.querySelector(".chat-input").focus();
-      });
-    });
-    Object.keys(boxes).forEach(function (q) {
-      var box = boxes[q], input = box.querySelector(".chat-input");
-      box.querySelector(".chat-send").addEventListener("click", function () { send(q); });
-      input.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(q); }
-      });
+    document.querySelectorAll(".note-ask").forEach(function (btn) {
+      btn.addEventListener("click", function () { send(btn.getAttribute("data-q")); });
     });
     poll();
     setInterval(function () { if (document.visibilityState === "visible") poll(); }, 3000);
@@ -579,7 +568,7 @@ JS = """
     var all = CONFIG.openQuestions || [];
     var parts = all.filter(hasAnswer).map(describe);
     if (parts.length === 0) {
-      bar.textContent = "選択肢を選ぶと回答がここに組み立てられます";
+      bar.textContent = "選んだ回答がここに並びます";
       bar.classList.add("empty");
     } else {
       bar.textContent = parts.join(" / ");
@@ -780,9 +769,11 @@ def render_image(path: str, caption: str | None = None) -> str:
 def render_user_note(q: dict, is_open: bool) -> str:
     """質問ごとのユーザー自由記述欄。open は入力可、過去ラウンドは記入済みだけ読み取り専用。"""
     if is_open:
+        # 1 つの欄を、回答に添えるメモと、AI への質問の両方に使う。「聞く」を押すと書いた内容を AI に送る
         return (
-            f'<textarea class="q-note" data-q="{q["id"]}" rows="1" '
-            f'placeholder="補足・メモ(任意)"></textarea>'
+            f'<div class="note-row"><textarea class="q-note" data-q="{q["id"]}" rows="1" placeholder="メモ"></textarea>'
+            f'<button type="button" class="note-ask" data-q="{q["id"]}" title="書いた内容を AI に聞く">'
+            f'{icon("message-circle")}聞く<span class="ask-count"></span></button></div>'
         )
     if not q.get("user_note"):
         return ""
@@ -794,28 +785,20 @@ def render_q_head(q: dict, is_open: bool, multi: bool = False) -> str:
     """問いカードの上段(Q 番号・複数選択可・回答済み)と題。"""
     multi_note = '<span class="multi-note">複数選択可</span>' if multi else ""
     answered = f'<span class="q-answered">{icon("circle-check")}回答済み</span>' if not is_open and q.get("answer") else ""
-    ask = (
-        f'<button type="button" class="ask-btn" data-q="{q["id"]}" title="この問いについて AI に聞く">'
-        f'{icon("message-circle")}聞く<span class="ask-count"></span></button>'
-    ) if is_open else ""
-    tools = f'<div class="q-tools">{multi_note}{answered}{ask}</div>' if (multi_note or answered or ask) else ""
+    tools = f'<div class="q-tools">{multi_note}{answered}</div>' if (multi_note or answered) else ""
     return (
         f'<div class="q-head"><h3 class="q-title"><span class="q-num">{q["id"]}</span>{q["title"]}</h3>{tools}</div>'
     )
 
 
 def render_chat(q: dict, is_open: bool) -> str:
-    """各問の会話欄(open のラウンドだけ)。中身はブラウザが /api/chat から描く。"""
+    """各問の会話の記録(open のラウンドだけ)。メモ欄の「聞く」で送ったものと AI の返事を、ブラウザが /api/chat から描く。"""
     if not is_open:
         return ""
     return (
         f'<div class="chat" data-q="{q["id"]}" hidden><div class="chat-log"></div>'
         '<div class="chat-wait" hidden>AI の返事を待っています…</div>'
-        '<div class="chat-form"><textarea class="chat-input" rows="1" '
-        'placeholder="この問いについて AI に聞く(Enter で送信、Shift+Enter で改行)"></textarea>'
-        '<button type="button" class="btn chat-send">送る</button></div>'
-        '<div class="chat-err"></div>'
-        '<div class="chat-hint">回答の送信とは別です。AI が質問票を見ていれば、ここに返事が出ます。</div></div>'
+        '<div class="chat-err"></div></div>'
     )
 
 
@@ -924,7 +907,7 @@ def render_question(q: dict, is_open: bool) -> str:
             f'<span class="body">{o["label"]}{why_inline}</span>{rec}{oimg}</button>'
         )
     opts_class = "opts has-images" if any(o.get("image") for o in q["options"]) else "opts"
-    hint = '<div class="opt-hint">複数選べます</div>' if multi else '<div class="opt-hint">1 つ選びます</div>'
+    hint = '<div class="opt-hint">複数選べます</div>' if multi else ""
     why = "" if is_open else render_why(q)
     user_note = render_user_note(q, is_open)
     # 画像(モック)付きの問いは、狭い列だと見にくいので広い画面でも 1 行を使い切る
@@ -1010,7 +993,7 @@ def main() -> None:
             '<textarea id="free-text" rows="1" hidden placeholder="自由記述(補足・選択肢外の回答など)"></textarea>'
             '<div class="answer-row">'
             f'<div class="progress"><span id="progress-text">0 / {open_q_count} 回答</span><i><b id="progress-fill"></b></i></div>'
-            '<div id="answer-string" class="empty">選択肢を選ぶと回答がここに組み立てられます</div>'
+            '<div id="answer-string" class="empty">選んだ回答がここに並びます</div>'
             '<div class="answer-btns">'
             f'<button class="btn" id="free-toggle">{icon("notebook-pen")}<span class="lbl">自由記述</span></button>'
             f'<button class="btn" id="all-rec">{icon("check-check")}<span class="lbl">推奨で埋める</span></button>'
