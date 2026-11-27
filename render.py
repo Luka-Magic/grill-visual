@@ -145,7 +145,7 @@ table.cases td:first-child { color: var(--text); }
 .q-card { background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 24px 24px 20px; display: flex; flex-direction: column; gap: 16px; }
 .q-head { display: flex; align-items: flex-start; gap: 12px; }
 .q-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12px; flex-wrap: wrap; justify-content: flex-end; padding-top: 4px; }
-.q-num { display: inline-block; margin-right: 8px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 13px; line-height: 20px; color: var(--sub); vertical-align: 2px; font-variant-numeric: tabular-nums; }
+.q-num { display: inline-block; margin-right: 8px; padding: 0 6px; background: var(--line); border-radius: 4px; font-size: 13px; line-height: 20px; color: var(--text); vertical-align: 2px; font-variant-numeric: tabular-nums; }
 .multi-note { color: var(--sub); border: 1px solid var(--line); border-radius: 4px; padding: 0 8px; white-space: nowrap; }
 .q-answered { color: var(--done); white-space: nowrap; }
 .q-title { flex: 1; min-width: 0; font-size: 17.5px; line-height: 1.5; font-weight: 600; color: var(--text); text-wrap: balance; overflow-wrap: break-word; }
@@ -295,6 +295,11 @@ table.cases td:first-child { color: var(--text); }
 .msg.ai .who { color: var(--review); }
 .chat-wait { font-size: 12px; color: var(--mute); }
 .chat-wait[hidden] { display: none; }
+.dots i { font-style: normal; opacity: 0; animation: dot 1.4s infinite; }
+.dots i:nth-child(2) { animation-delay: 0.2s; }
+.dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dot { 0%, 15% { opacity: 0; } 30%, 70% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: 1; } }
 .chat-err { font-size: 12px; color: var(--err); }
 .chat-err:empty { display: none; }
 /* 広い画面: 問いを 2〜3 列に並べる。画像(モック)付き・ルール一覧型・パネルは 1 行を使い切る */
@@ -797,7 +802,7 @@ def render_chat(q: dict, is_open: bool) -> str:
         return ""
     return (
         f'<div class="chat" data-q="{q["id"]}" hidden><div class="chat-log"></div>'
-        '<div class="chat-wait" hidden>AI の返事を待っています…</div>'
+        '<div class="chat-wait" hidden>AI の返事を待っています<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></div>'
         '<div class="chat-err"></div></div>'
     )
 
@@ -814,18 +819,13 @@ RISK_LABEL = {"high": "高", "mid": "中", "low": "低"}
 
 
 def render_cases_table(cases: list[dict]) -> str:
-    """例(テストケース)の横長表。1 例 = 1 行。"""
+    """例(テストケース)の表。1 例 = 1 行で、振る舞いと期待する結果だけを自然な文で見せる。
+    入力・分類はデータには残すが、人が判断するのに要らないので表には出さない。"""
     if not cases:
         return ""
-    rows = "".join(
-        f'<tr><td>{c["behavior"]}</td><td>{c.get("input", "")}</td>'
-        f'<td>{c.get("expected", "")}</td><td>{c.get("kind", "")}</td></tr>'
-        for c in cases
-    )
-    return (
-        '<table class="cases"><tr><th>振る舞い</th><th>入力</th><th>期待結果</th><th>分類</th></tr>'
-        f"{rows}</table>"
-    )
+    rows = "".join(f'<tr><td>{c["behavior"]}</td><td>{c.get("expected", "")}</td></tr>' for c in cases)
+    return f'<table class="cases"><tr><th>振る舞い</th><th>期待する結果</th></tr>{rows}</table>'
+
 
 
 def render_rule(rule: dict, decision: str | None, is_open: bool) -> str:
@@ -907,7 +907,7 @@ def render_question(q: dict, is_open: bool) -> str:
             f'<span class="body">{o["label"]}{why_inline}</span>{rec}{oimg}</button>'
         )
     opts_class = "opts has-images" if any(o.get("image") for o in q["options"]) else "opts"
-    hint = '<div class="opt-hint">複数選べます</div>' if multi else ""
+    hint = ""  # 複数選択かどうかは上段の「複数選択可」で分かる
     why = "" if is_open else render_why(q)
     user_note = render_user_note(q, is_open)
     # 画像(モック)付きの問いは、狭い列だと見にくいので広い画面でも 1 行を使い切る
