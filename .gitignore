@@ -2,3 +2,5 @@ __pycache__/
 .pytest_cache/
 .ui-comments/
 .hallmark/
+.mypy_cache/
+.ruff_cache/
