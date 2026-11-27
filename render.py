@@ -10,7 +10,9 @@
 印字: 出力パスと、統合ページの URL(<root>#<topic>。root は環境変数 PARALLEL_GRILL_URL、
       無ければ http://localhost:8787/)。
 
-スキーマ(文字列は HTML として挿入される。<code>/<strong> 可。外部入力は入れない):
+スキーマ(文字列は HTML として挿入される。<code>/<strong>/表/画像/リンクなどが使える。
+許可していないタグ・属性・URL は sanitize.py が取り除く。user_note / free_text_answer は
+ユーザーの入力なので HTML として扱わずエスケープする。topic は英数字・-・_ だけ):
 {
   "topic": "slug", "title": "見出し", "intro": "リード文",
   "kind": "plan"|"test-review"|"ui-check"?, "project": str?, "issue": int?,   # 統合ページの絞り込み用(省略時は topic/title から推定)
@@ -52,7 +54,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from icons import icon  # noqa: E402  (同じディレクトリの icons.py)
-from state import resolve_root  # noqa: E402  (同じディレクトリの state.py)
+from sanitize import safe_html, safe_url, to_text  # noqa: E402  (同じディレクトリの sanitize.py)
+from state import TOPIC_MAX_LEN, resolve_root, sanitize_topic  # noqa: E402  (同じディレクトリの state.py)
 
 OUT_DIR = resolve_root()
 DEFAULT_DASHBOARD_ROOT = "http://localhost:8787/"
@@ -731,15 +734,30 @@ JS = """
 """
 
 
+def attr(value: object) -> str:
+    """属性値としてエスケープした文字列。"""
+    return html.escape(str(value), quote=True)
+
+
+def text(value: object) -> str:
+    """HTML として扱わない文字列(ユーザーの入力・id など)。エスケープして文字のまま見せる。"""
+    return html.escape(str(value), quote=False)
+
+
+def script_json(value: object) -> str:
+    """<script> に埋め込む JSON。< をエスケープして </script> で閉じられないようにする。"""
+    return json.dumps(value, ensure_ascii=False).replace("<", "\\u003c")
+
+
 def render_tree(nodes: list) -> str:
     items = []
     for n in nodes:
         status = "done" if n.get("status") == "done" else "open"
-        note = f'<span class="note">{n["note"]}</span>' if n.get("note") else ""
+        note = f'<span class="note">{safe_html(n["note"])}</span>' if n.get("note") else ""
         children = f'<ul>{render_tree(n["children"])}</ul>' if n.get("children") else ""
         items.append(
             f'<li class="{status}"><span class="node">{icon("circle-check" if status == "done" else "circle-dashed", "mark")}'
-            f'<span class="text"><span class="label">{n["label"]}</span>{note}</span></span>{children}</li>'
+            f'<span class="text"><span class="label">{safe_html(n.get("label"))}</span>{note}</span></span>{children}</li>'
         )
     return "".join(items)
 
@@ -771,8 +789,8 @@ def render_tree_panel(nodes: list) -> str:
 
 
 def render_image(path: str, caption: str | None = None) -> str:
-    cap = f"<figcaption>{caption}</figcaption>" if caption else ""
-    return f'<figure class="q-image"><img src="{path}" alt="">{cap}</figure>'
+    cap = f"<figcaption>{safe_html(caption)}</figcaption>" if caption else ""
+    return f'<figure class="q-image"><img src="{safe_url(path)}" alt="">{cap}</figure>'
 
 
 def render_user_note(q: dict, is_open: bool) -> str:
@@ -780,14 +798,14 @@ def render_user_note(q: dict, is_open: bool) -> str:
     if is_open:
         # 1 つの欄を、回答に添えるメモと、AI への質問の両方に使う。「聞く」を押すと書いた内容を AI に送る
         return (
-            f'<div class="note-row"><textarea class="q-note" data-q="{q["id"]}" rows="1" placeholder="メモ"></textarea>'
-            f'<button type="button" class="note-ask" data-q="{q["id"]}" title="書いた内容を AI に聞く">'
+            f'<div class="note-row"><textarea class="q-note" data-q="{attr(q["id"])}" rows="1" placeholder="メモ"></textarea>'
+            f'<button type="button" class="note-ask" data-q="{attr(q["id"])}" title="書いた内容を AI に聞く">'
             f'{icon("message-circle")}聞く<span class="ask-count"></span></button></div>'
         )
     if not q.get("user_note"):
         return ""
     # ユーザーが打った文字列なのでエスケープする(他の項目と違い HTML として扱わない)
-    return f'<div class="user-note"><strong>あなたのメモ</strong><span>{html.escape(q["user_note"])}</span></div>'
+    return f'<div class="user-note"><strong>あなたのメモ</strong><span>{text(q["user_note"])}</span></div>'
 
 
 def render_q_head(q: dict, is_open: bool, multi: bool = False) -> str:
@@ -796,7 +814,7 @@ def render_q_head(q: dict, is_open: bool, multi: bool = False) -> str:
     answered = f'<span class="q-answered">{icon("circle-check")}回答済み</span>' if not is_open and q.get("answer") else ""
     tools = f'<div class="q-tools">{multi_note}{answered}</div>' if (multi_note or answered) else ""
     return (
-        f'<div class="q-head"><h3 class="q-title"><span class="q-num">{q["id"]}</span>{q["title"]}</h3>{tools}</div>'
+        f'<div class="q-head"><h3 class="q-title"><span class="q-num">{text(q["id"])}</span>{safe_html(q["title"])}</h3>{tools}</div>'
     )
 
 
@@ -805,18 +823,18 @@ def render_chat(q: dict, is_open: bool) -> str:
     if not is_open:
         return ""
     return (
-        f'<div class="chat" data-q="{q["id"]}" hidden><div class="chat-log"></div>'
+        f'<div class="chat" data-q="{attr(q["id"])}" hidden><div class="chat-log"></div>'
         '<div class="chat-wait" hidden>AI の返事を待っています<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></div>'
         '<div class="chat-err"></div></div>'
     )
 
 
 def render_why(q: dict) -> str:
-    return f'<div class="why"><strong>推奨理由</strong><span>{q["why"]}</span></div>' if q.get("why") else ""
+    return f'<div class="why"><strong>推奨理由</strong><span>{safe_html(q["why"])}</span></div>' if q.get("why") else ""
 
 
 def render_answer_note(q: dict) -> str:
-    return f'<div class="answer-note"><strong>AI 注記</strong><span>{q["answer_note"]}</span></div>' if q.get("answer_note") else ""
+    return f'<div class="answer-note"><strong>AI 注記</strong><span>{safe_html(q["answer_note"])}</span></div>' if q.get("answer_note") else ""
 
 
 RISK_LABEL = {"high": "高", "mid": "中", "low": "低"}
@@ -828,8 +846,8 @@ def render_cases_table(cases: list[dict]) -> str:
     if not cases:
         return ""
     items = "".join(
-        f'<li><span class="do">{c["behavior"]}</span>{icon("arrow-right", "ic to")}'
-        f'<span class="then">{c.get("expected", "")}</span></li>'
+        f'<li><span class="do">{safe_html(c.get("behavior"))}</span>{icon("arrow-right", "ic to")}'
+        f'<span class="then">{safe_html(c.get("expected"))}</span></li>'
         for c in cases
     )
     return f'<ul class="cases">{items}</ul>'
@@ -844,31 +862,31 @@ def render_rule(rule: dict, decision: str | None, is_open: bool) -> str:
     cases_open = risk == "high" or decision == "reject"
     checked = " checked" if adopted else ""
     disabled = "" if is_open else " disabled"
-    ears = f'<div class="rule-ears">{rule["ears"]}</div>' if rule.get("ears") else ""
+    ears = f'<div class="rule-ears">{safe_html(rule["ears"])}</div>' if rule.get("ears") else ""
     toggle = (
         f'<button type="button" class="rule-cases-toggle">▸ 例 {len(cases)} 件</button>' if cases else ""
     )
-    ai_note = f'<div class="rule-ai-note">{rule["note"]}</div>' if rule.get("note") else ""
+    ai_note = f'<div class="rule-ai-note">{safe_html(rule["note"])}</div>' if rule.get("note") else ""
     cases_html = f'<div class="rule-cases" hidden>{ai_note}{render_cases_table(cases)}</div>' if cases or ai_note else ""
     if is_open:
-        note_input = f'<input class="rule-note" data-rule="{rule["id"]}" placeholder="1 行コメント(任意)">'
+        note_input = f'<input class="rule-note" data-rule="{attr(rule["id"])}" placeholder="1 行コメント(任意)">'
         note_hidden, cmt_on = " hidden", ""
     elif rule.get("user_note"):
         # ユーザーが打った文字列なのでエスケープする
         note_input = (
-            f'<input class="rule-note" data-rule="{rule["id"]}" disabled '
-            f'value="{html.escape(rule["user_note"], quote=True)}">'
+            f'<input class="rule-note" data-rule="{attr(rule["id"])}" disabled '
+            f'value="{attr(rule["user_note"])}">'
         )
         note_hidden, cmt_on = "", " on"
     else:
         note_input, note_hidden, cmt_on = "", " hidden", ""
     rejected = "" if adopted else " rejected"
     return (
-        f'<div class="rule{rejected}" data-rule="{rule["id"]}" data-cases-open="{str(cases_open).lower()}">'
-        f'<div class="rule-head"><span class="risk {risk}">{RISK_LABEL.get(risk, risk)}</span>'
-        f'<div class="rule-main"><div class="rule-text">{rule["text"]}</div>{ears}{toggle}</div>'
+        f'<div class="rule{rejected}" data-rule="{attr(rule["id"])}" data-cases-open="{str(cases_open).lower()}">'
+        f'<div class="rule-head"><span class="risk {attr(risk)}">{text(RISK_LABEL.get(risk, risk))}</span>'
+        f'<div class="rule-main"><div class="rule-text">{safe_html(rule["text"])}</div>{ears}{toggle}</div>'
         f'<div class="rule-ctl"><label class="switch">'
-        f'<input type="checkbox" data-rule="{rule["id"]}" class="rule-adopt"{checked}{disabled}><span></span></label>'
+        f'<input type="checkbox" data-rule="{attr(rule["id"])}" class="rule-adopt"{checked}{disabled}><span></span></label>'
         f'<button type="button" class="rule-cmt{cmt_on}" title="1 行コメント" aria-label="1 行コメント">{icon("sticky-note")}</button></div></div>'
         f'{cases_html}<div class="rule-note-wrap"{note_hidden}>{note_input}</div></div>'
     )
@@ -883,8 +901,8 @@ def render_rules_question(q: dict, is_open: bool) -> str:
     foot = f'<div class="rules-foot">採用 {adopt} / 不採用 {len(q["rules"]) - adopt}</div>'
     user_note = render_user_note(q, is_open)
     return (
-        f'<div class="q-card wide" data-q="{q["id"]}" data-type="rules" data-open="{str(is_open).lower()}">'
-        f'{render_q_head(q, is_open)}<p class="q-body">{q["body"]}</p>'
+        f'<div class="q-card wide" data-q="{attr(q["id"])}" data-type="rules" data-open="{str(is_open).lower()}">'
+        f'{render_q_head(q, is_open)}<p class="q-body">{safe_html(q["body"])}</p>'
         f'<div class="rules">{rows}</div>{foot}{user_note}{render_why(q)}{render_answer_note(q)}'
         f'{render_chat(q, is_open)}</div>'
     )
@@ -903,16 +921,16 @@ def render_question(q: dict, is_open: bool) -> str:
         rec = '<span class="rec-badge">推奨</span>' if o.get("recommended") else ""
         why_inline = ""
         if why_inline_left and o.get("recommended"):
-            why_inline = f'<span class="why-inline">{q["why"]}</span>'
+            why_inline = f'<span class="why-inline">{safe_html(q["why"])}</span>'
             why_inline_left = False
-        oimg = f'<img src="{o["image"]}" alt="">' if o.get("image") else ""
+        oimg = f'<img src="{safe_url(o["image"])}" alt="">' if o.get("image") else ""
         has_img = " has-img" if o.get("image") else ""
         selected = " selected" if o["key"] in answered else ""
         disabled = "" if is_open else " disabled"
         opts.append(
-            f'<button class="opt{has_img}{selected}"{disabled} data-key="{o["key"]}">'
-            f'<span class="key">{o["key"]}</span>'
-            f'<span class="body">{o["label"]}{why_inline}</span>{rec}{oimg}</button>'
+            f'<button class="opt{has_img}{selected}"{disabled} data-key="{attr(o["key"])}">'
+            f'<span class="key">{text(o["key"])}</span>'
+            f'<span class="body">{safe_html(o["label"])}{why_inline}</span>{rec}{oimg}</button>'
         )
     opts_class = "opts has-images" if any(o.get("image") for o in q["options"]) else "opts"
     hint = ""  # 複数選択かどうかは上段の「複数選択可」で分かる
@@ -921,8 +939,8 @@ def render_question(q: dict, is_open: bool) -> str:
     # 画像(モック)付きの問いは、狭い列だと見にくいので広い画面でも 1 行を使い切る
     wide = " wide" if q.get("image") or opts_class != "opts" else ""
     return (
-        f'<div class="q-card{wide}" data-q="{q["id"]}" data-multi="{str(multi).lower()}" data-open="{str(is_open).lower()}">'
-        f'{render_q_head(q, is_open, multi)}<p class="q-body">{q["body"]}</p>{image}'
+        f'<div class="q-card{wide}" data-q="{attr(q["id"])}" data-multi="{str(multi).lower()}" data-open="{str(is_open).lower()}">'
+        f'{render_q_head(q, is_open, multi)}<p class="q-body">{safe_html(q["body"])}</p>{image}'
         f'{hint}<div class="{opts_class}">{"".join(opts)}</div>{user_note}{why}{render_answer_note(q)}'
         f'{render_chat(q, is_open)}</div>'
     )
@@ -938,7 +956,7 @@ def question_config(q: dict) -> dict:
 def render_round(r: dict) -> str:
     parts = []
     if r.get("facts"):
-        items = "".join(f"<li>{f}</li>" for f in r["facts"])
+        items = "".join(f"<li>{safe_html(f)}</li>" for f in r["facts"])
         parts.append(
             '<section class="panel dashed"><h2><span>前提事実<small>AI 調査済み</small></span></h2>'
             f'<ul class="items">{items}</ul></section>'
@@ -947,12 +965,13 @@ def render_round(r: dict) -> str:
     for q in r.get("questions", []):
         parts.append(render_question(q, is_open))
     if r.get("declarations"):
-        items = "".join(f"<li>{d}</li>" for d in r["declarations"])
+        items = "".join(f"<li>{safe_html(d)}</li>" for d in r["declarations"])
         head = "合意サマリ" if r.get("status") == "info" else "宣言事項<small>異議があれば自由記述へ</small>"
         parts.append(f'<section class="panel dashed"><h2><span>{head}</span></h2><ul class="items">{items}</ul></section>')
     if r.get("free_text_answer"):
         parts.append(
-            f'<div class="free-answer"><span class="label">自由記述の回答</span>{r["free_text_answer"]}</div>'
+            # ユーザーが打った文字列なのでエスケープする(改行は CSS の pre-wrap で保つ)
+            f'<div class="free-answer"><span class="label">自由記述の回答</span>{text(r["free_text_answer"])}</div>'
         )
     return "".join(parts)
 
@@ -969,6 +988,8 @@ def main() -> None:
         sys.exit("usage: render.py <topic>.json")
     data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     topic = data["topic"]
+    if not isinstance(topic, str) or not topic or sanitize_topic(topic) != topic:
+        sys.exit(f"topic は英数字・-・_ だけで書く({TOPIC_MAX_LEN} 文字まで): {topic!r}")
     rounds = data["rounds"]
     open_rounds = [r for r in rounds if r.get("status") == "open"]
     open_round = open_rounds[-1] if open_rounds else None
@@ -981,13 +1002,13 @@ def main() -> None:
         status = r.get("status")
         mark = {"answered": f'<span class="mark answered">{icon("check")}</span>', "open": '<span class="mark open">●</span>'}.get(status, "")
         tabs.append(
-            f'<button class="tab-btn{is_active}" data-target="pane-{r["round"]}">{label}{mark}</button>'
+            f'<button class="tab-btn{is_active}" data-target="pane-{attr(r["round"])}">{safe_html(label)}{mark}</button>'
         )
-        panes.append(f'<div class="tab-pane{is_active}" id="pane-{r["round"]}">{render_round(r)}</div>')
+        panes.append(f'<div class="tab-pane{is_active}" id="pane-{attr(r["round"])}">{render_round(r)}</div>')
 
     open_q_count = len(open_round.get("questions", [])) if open_round else 0
     state = (
-        f'<span class="state">Round {open_round["round"]} / 質問 {open_q_count} 件</span>'
+        f'<span class="state">Round {text(open_round["round"])} / 質問 {open_q_count} 件</span>'
         if open_round else '<span class="state done">完了</span>'
     )
     if open_round:
@@ -1016,13 +1037,13 @@ def main() -> None:
     tree = render_tree_panel(data["tree"]) if data.get("tree") else ""
     body_class = ' class="has-bar"' if open_round else ""
 
-    html = f"""<!DOCTYPE html>
+    page = f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="grill の質問票。選択肢を選んで送信すると、AI が次の作業に進みます。">
-<title>Grill: {data["title"]}</title>
+<title>Grill: {to_text(data["title"])}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1032,9 +1053,9 @@ def main() -> None:
 <body{body_class}>
 <div class="wrap">
 <header>
-  <div class="kicker"><span class="topic">{topic}</span>{state}</div>
-  <h1>{data["title"]}</h1>
-  <p class="lede">{data.get("intro", "")}</p>
+  <div class="kicker"><span class="topic">{text(topic)}</span>{state}</div>
+  <h1>{safe_html(data["title"])}</h1>
+  <p class="lede">{safe_html(data.get("intro", ""))}</p>
 </header>
 {tree}
 <div class="tabs">{"".join(tabs)}</div>
@@ -1042,13 +1063,13 @@ def main() -> None:
 </div>
 {answer_bar}
 <div id="lightbox"><img src="" alt=""></div>
-<script>{JS.replace("__CONFIG__", json.dumps(config, ensure_ascii=False))}</script>
+<script>{JS.replace("__CONFIG__", script_json(config))}</script>
 </body>
 </html>
 """
     out = OUT_DIR / f"grill-{topic}.html"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out.write_text(html, encoding="utf-8")
+    out.write_text(page, encoding="utf-8")
     print(f"{out}\n{dashboard_url(topic)}")
 
 
