@@ -99,6 +99,12 @@ body.has-bar .wrap { padding-bottom: 152px; }
 .kicker .state.done { color: var(--s-done); }
 h1 { font-size: 26px; line-height: 1.4; font-weight: 600; color: var(--text); text-wrap: balance; overflow-wrap: break-word; min-width: 0; }
 .lede { color: var(--sub); margin-top: 12px; }
+/* 質問データの HTML(position:absolute や z-index)が枠の外や送信バーの上に出ないよう、描画を枠の中に閉じ込める。
+ * 幅の広い表やコードは切り捨てず、枠の中で横にスクロールして読めるようにする。
+ * header は余白が無いので、フォーカスの輪郭(外へ 4px)が切れない分だけ切り取りの縁を広げる */
+header, .panel, .q-card, .free-answer, .tab-btn { position: relative; contain: paint; }
+.panel, .q-card, .free-answer { overflow-x: auto; }
+header, .tab-btn { overflow-clip-margin: 4px; }
 /* パネル(設計ツリー・前提事実・宣言事項) */
 .panel { background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 16px 20px; }
 .panel h2 { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
