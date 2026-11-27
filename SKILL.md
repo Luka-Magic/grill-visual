@@ -130,7 +130,7 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
 grill-visual 自体の見た目を直す間だけ使う。普段使いのサーバー(`serve.sh`、8787)には入れない。
 
 - お試し用のサーバーは `trial.sh` で起動する。配信ルートは `~/.agent/diagrams-trial`、ポートは 127.0.0.1:8791、
-  tailnet では `http://sata.tail82be3a.ts.net:8382/`。`trial.sh --stop` で止める
+  tailnet では `http://<tailnet のホスト名>:8382/`。`trial.sh --stop` で止める
 - お試し用のサーバーは、統合ページと質問票に、画面の要素を指してコメントを書くボタンを差し込む
   (`GRILL_UI_COMMENTS=1`)。質問票への回答とは別物
 - お試し用の質問票を描くときは `GRILL_ROOT=~/.agent/diagrams-trial` を付けて render.py と chat.py を動かす
