@@ -51,6 +51,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from icons import icon  # noqa: E402  (同じディレクトリの icons.py)
 from state import resolve_root  # noqa: E402  (同じディレクトリの state.py)
 
 OUT_DIR = resolve_root()
@@ -106,7 +107,9 @@ h1 { font-size: 26px; line-height: 1.4; font-weight: 600; color: var(--text); te
 .panel-head h2 { margin-bottom: 0; }
 .legend { display: flex; gap: 16px; font-size: 12px; font-weight: 400; color: var(--sub); white-space: nowrap; }
 .legend span { display: inline-flex; align-items: center; gap: 4px; }
-.legend .mark { width: 8px; height: 8px; border-radius: 50%; }
+.legend .mark { width: 14px; height: 14px; }
+.legend .done .mark { color: var(--done); }
+.legend .open .mark { color: var(--wait); }
 .panel.dashed { background: none; border: 1px dashed var(--line); padding: 16px 20px; }
 .panel.dashed h2 { margin-bottom: 8px; }
 .items { list-style: none; padding: 0; font-size: 14px; color: var(--sub); display: flex; flex-direction: column; gap: 8px; }
@@ -123,8 +126,8 @@ table.cases td:first-child { color: var(--text); }
 .tree .node { display: flex; align-items: flex-start; gap: 12px; }
 .tree .node .text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .tree .note { margin-left: 8px; }
-.tree .mark { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--wait); flex: none; margin-top: 8px; }
-.tree li.done > .node .mark { background: var(--done); border-color: var(--done); }
+.tree .mark { width: 14px; height: 14px; color: var(--wait); flex: none; margin-top: 5px; }
+.tree li.done > .node .mark { color: var(--done); }
 .tree li.done > .node .label { color: var(--sub); }
 .tree .note { color: var(--mute); font-size: 12.5px; }
 /* タブ */
@@ -258,6 +261,10 @@ table.cases td:first-child { color: var(--text); }
 #copy-btn { border: 1px solid var(--line); color: var(--text); padding: 8px 16px; }
 .btn.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; padding: 8px 24px; font-size: 13.5px; }
 .btn.primary:hover { background: var(--accent); color: var(--on-accent); filter: brightness(1.08); }
+.ic { width: 14px; height: 14px; flex: none; }
+.btn { display: inline-flex; align-items: center; gap: 6px; }
+.q-answered { display: inline-flex; align-items: center; gap: 4px; }
+.tab-btn .mark .ic { width: 12px; height: 12px; vertical-align: -1px; }
 .btn[disabled] { background: var(--line2); color: var(--mute); font-weight: 500; cursor: not-allowed; }
 #free-text {
   display: block; width: 100%; font: inherit; font-size: 13.5px; border: 1px solid var(--field-line); border-radius: 6px;
@@ -585,6 +592,7 @@ JS = """
     if (progressFill) progressFill.style.transform = "scaleX(" + (all.length ? parts.length / all.length : 0) + ")";
   }
   var freeToggle = document.getElementById("free-toggle");
+  var submitLabel = document.querySelector("#submit-btn .lbl") || { textContent: "" };
   if (freeToggle) freeToggle.addEventListener("click", function () {
     freeInput.hidden = !freeInput.hidden;
     if (!freeInput.hidden) freeInput.focus();
@@ -662,8 +670,8 @@ JS = """
     if (!text) return;
     var btn = this;
     function done(label) {
-      btn.textContent = label;
-      setTimeout(function () { btn.textContent = "コピー"; }, 1800);
+      btn.querySelector(".lbl").textContent = label;
+      setTimeout(function () { btn.querySelector(".lbl").textContent = "コピー"; }, 1800);
     }
     function fallback() {
       var range = document.createRange();
@@ -674,7 +682,7 @@ JS = """
       done("選択しました — Ctrl+C で");
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () { done("コピーしました ✓"); }, fallback);
+      navigator.clipboard.writeText(text).then(function () { done("コピーしました"); }, fallback);
     } else { fallback(); }
   });
 
@@ -690,7 +698,7 @@ JS = """
       return;
     }
     submitBtn.disabled = true;
-    submitBtn.textContent = "送信中…";
+    submitLabel.textContent = "送信中…";
     status.textContent = "送信中…";
     status.style.color = "var(--sub)";
     fetch("/submit", {
@@ -702,7 +710,7 @@ JS = """
       })
     }).then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
-      submitBtn.textContent = "送信済み";
+      submitLabel.textContent = "送信済み";
       status.textContent = "送信しました ✓ AI が自動で処理を再開します";
       status.style.color = "var(--done)";
       submitted = true;
@@ -712,7 +720,7 @@ JS = """
       }
     }).catch(function (e) {
       submitBtn.disabled = false;
-      submitBtn.textContent = "送信";
+      submitLabel.textContent = "送信";
       status.textContent = "送信失敗(" + e.message + ")— コピーでチャットに貼ってください";
       status.style.color = "var(--err)";
     });
@@ -735,7 +743,7 @@ def render_tree(nodes: list) -> str:
         note = f'<span class="note">{n["note"]}</span>' if n.get("note") else ""
         children = f'<ul>{render_tree(n["children"])}</ul>' if n.get("children") else ""
         items.append(
-            f'<li class="{status}"><span class="node"><i class="mark"></i>'
+            f'<li class="{status}"><span class="node">{icon("circle-check" if status == "done" else "circle-dashed", "mark")}'
             f'<span class="text"><span class="label">{n["label"]}</span>{note}</span></span>{children}</li>'
         )
     return "".join(items)
@@ -758,8 +766,8 @@ def render_tree_panel(nodes: list) -> str:
     done, open_ = tree_counts(nodes)
     legend = (
         '<span class="legend">'
-        f'<span><i class="mark" style="background:var(--done)"></i>決定 {done}</span>'
-        f'<span><i class="mark" style="border:1.5px solid var(--wait)"></i>未決 {open_}</span></span>'
+        f'<span class="done">{icon("circle-check", "mark")}決定 {done}</span>'
+        f'<span class="open">{icon("circle-dashed", "mark")}未決 {open_}</span></span>'
     )
     return (
         f'<section class="panel"><div class="panel-head"><h2>設計ツリー</h2>{legend}</div>'
@@ -788,10 +796,10 @@ def render_user_note(q: dict, is_open: bool) -> str:
 def render_q_head(q: dict, is_open: bool, multi: bool = False) -> str:
     """問いカードの上段(Q 番号・複数選択可・回答済み)と題。"""
     multi_note = '<span class="multi-note">複数選択可</span>' if multi else ""
-    answered = '<span class="q-answered">✓ 回答済み</span>' if not is_open and q.get("answer") else ""
+    answered = f'<span class="q-answered">{icon("circle-check")}回答済み</span>' if not is_open and q.get("answer") else ""
     ask = (
         f'<button type="button" class="ask-btn" data-q="{q["id"]}" title="この問いについて AI に聞く">'
-        '聞く<span class="ask-count"></span></button>'
+        f'{icon("message-circle")}聞く<span class="ask-count"></span></button>'
     ) if is_open else ""
     tools = f'<div class="q-tools">{multi_note}{answered}{ask}</div>' if (multi_note or answered or ask) else ""
     return (
@@ -873,7 +881,7 @@ def render_rule(rule: dict, decision: str | None, is_open: bool) -> str:
         f'<div class="rule-main"><div class="rule-text">{rule["text"]}</div>{ears}{toggle}</div>'
         f'<div class="rule-ctl"><label class="switch">'
         f'<input type="checkbox" data-rule="{rule["id"]}" class="rule-adopt"{checked}{disabled}><span></span></label>'
-        f'<button type="button" class="rule-cmt{cmt_on}" title="1 行コメント" aria-label="1 行コメント"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke-linejoin="round"/></svg></button></div></div>'
+        f'<button type="button" class="rule-cmt{cmt_on}" title="1 行コメント" aria-label="1 行コメント">{icon("sticky-note")}</button></div></div>'
         f'{cases_html}<div class="rule-note-wrap"{note_hidden}>{note_input}</div></div>'
     )
 
@@ -983,7 +991,7 @@ def main() -> None:
         label = r.get("label") or f'Round {r["round"]}'
         is_active = " active" if r is active else ""
         status = r.get("status")
-        mark = {"answered": '<span class="mark answered">✓</span>', "open": '<span class="mark open">●</span>'}.get(status, "")
+        mark = {"answered": f'<span class="mark answered">{icon("check")}</span>', "open": '<span class="mark open">●</span>'}.get(status, "")
         tabs.append(
             f'<button class="tab-btn{is_active}" data-target="pane-{r["round"]}">{label}{mark}</button>'
         )
@@ -1007,10 +1015,10 @@ def main() -> None:
             f'<div class="progress"><span id="progress-text">0 / {open_q_count} 回答</span><i><b id="progress-fill"></b></i></div>'
             '<div id="answer-string" class="empty">選択肢を選ぶと回答がここに組み立てられます</div>'
             '<div class="answer-btns">'
-            '<button class="btn" id="free-toggle">+ 自由記述</button>'
-            '<button class="btn" id="all-rec">推奨で埋める</button>'
-            '<button class="btn" id="copy-btn">コピー</button>'
-            '<button class="btn primary" id="submit-btn">送信</button>'
+            f'<button class="btn" id="free-toggle">{icon("notebook-pen")}<span class="lbl">自由記述</span></button>'
+            f'<button class="btn" id="all-rec">{icon("check-check")}<span class="lbl">推奨で埋める</span></button>'
+            f'<button class="btn" id="copy-btn">{icon("copy")}<span class="lbl">コピー</span></button>'
+            f'<button class="btn primary" id="submit-btn">{icon("send")}<span class="lbl">送信</span></button>'
             '</div></div><div id="submit-status"></div></div></div>'
         )
     else:
