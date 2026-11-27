@@ -83,7 +83,13 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
 .ago { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--mute); white-space: nowrap; flex: none; padding-top: 2px; }
 .it .meta { display: flex; gap: 12px; font-size: 11.5px; color: var(--mute); overflow: hidden; white-space: nowrap; }
 .meta span { overflow: hidden; text-overflow: ellipsis; }
-.meta .r { margin-left: auto; flex: none; font-variant-numeric: tabular-nums; }
+.meta .iss { flex: none; font-variant-numeric: tabular-nums; }
+/* ラウンドと質問数の組: 左が塗りの札(ラウンド)、右がその続き(このラウンドの問いの数) */
+.rq { margin-left: auto; flex: none; display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; }
+.rq > span { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; }
+.rq .rd { background: var(--line); color: var(--text); }
+.rq .qc { color: var(--sub); min-width: 34px; }
+.rq svg { width: 12px; height: 12px; flex: none; }
 .pairs { display: flex; gap: 16px; margin: 0; }
 .pairs div { display: flex; gap: 6px; min-width: 0; }
 .pairs dt { color: var(--mute); }
@@ -305,12 +311,33 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
   function hasIssueInTitle(t) {
     return t.issue !== null && t.issue !== undefined && (t.title || "").indexOf("#" + t.issue) !== -1;
   }
+  // Lucide の list-checks(ISC ライセンス)
+  var LIST_CHECKS = ["m3 17 2 2 4-4", "m3 7 2 2 4-4", "M13 6h8", "M13 12h8", "M13 18h8"];
+  function listChecksIcon() {
+    var NS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(NS, "svg");
+    [["viewBox", "0 0 24 24"], ["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2.2"],
+     ["stroke-linecap", "round"], ["stroke-linejoin", "round"], ["aria-hidden", "true"]].forEach(function (a) { svg.setAttribute(a[0], a[1]); });
+    LIST_CHECKS.forEach(function (d) { var p = document.createElementNS(NS, "path"); p.setAttribute("d", d); svg.appendChild(p); });
+    return svg;
+  }
+  function roundOf(t) {
+    return (t.open_round !== null && t.open_round !== undefined) ? t.open_round : (t.round_count || 0);
+  }
   function fillMeta(node, t) {
-    var right = [];
-    if (t.issue !== null && t.issue !== undefined && !hasIssueInTitle(t)) right.push("#" + t.issue);
-    if (t.open_round !== null && t.open_round !== undefined) right.push("R" + t.open_round);
     var kids = [el("span", "p", t.project || "")];
-    if (right.length) kids.push(el("span", "r", right.join(" ")));
+    if (t.issue !== null && t.issue !== undefined && !hasIssueInTitle(t)) kids.push(el("span", "iss", "#" + t.issue));
+    var r = roundOf(t);
+    if (r) {
+      var set = el("span", "rq");
+      set.title = "ラウンド " + r + "、質問 " + (t.question_count || 0) + " 問";
+      set.appendChild(el("span", "rd", "R" + r));
+      var qc = el("span", "qc");
+      qc.appendChild(listChecksIcon());
+      qc.appendChild(document.createTextNode(String(t.question_count || 0)));
+      set.appendChild(qc);
+      kids.push(set);
+    }
     node.replaceChildren.apply(node, kids);
     return node;
   }
@@ -319,7 +346,8 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
     var pairs = [];
     if (t.project) pairs.push(["プロジェクト", t.project]);
     if (t.issue !== null && t.issue !== undefined && !hasIssueInTitle(t)) pairs.push(["issue", "#" + t.issue]);
-    if (t.open_round !== null && t.open_round !== undefined) pairs.push(["ラウンド", String(t.open_round)]);
+    if (roundOf(t)) pairs.push(["ラウンド", String(roundOf(t))]);
+    if (t.question_count) pairs.push(["質問", t.question_count + " 問"]);
     var dl = el("dl", "pairs");
     pairs.forEach(function (kv) {
       var row = el("div");

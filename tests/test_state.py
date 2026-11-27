@@ -270,3 +270,22 @@ def test_topic_with_forbidden_chars_is_error(root: Path):
     path.write_text(json.dumps({"topic": "../evil", "rounds": [open_round(1)]}), encoding="utf-8")
     t = by_topic(state.scan(root))["x"]
     assert t.state == "error" and "topic" in (t.error or "")
+
+
+# ---------------------------------------------------------------- 質問数
+
+def test_question_count_is_open_round_questions(root: Path):
+    write_topic(root, "a", [open_round(1, questions=4), open_round(2, questions=3)])
+    write_answer(root, "a", 1)
+    assert by_topic(state.scan(root))["a"].question_count == 3
+
+
+def test_question_count_falls_back_to_last_round_with_questions(root: Path):
+    write_topic(root, "a", [open_round(1, questions=5), info_round(2)])
+    write_answer(root, "a", 1)
+    assert by_topic(state.scan(root))["a"].question_count == 5
+
+
+def test_question_count_is_zero_without_questions(root: Path):
+    write_topic(root, "a", [info_round(1)])
+    assert by_topic(state.scan(root))["a"].question_count == 0
