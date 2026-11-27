@@ -163,3 +163,11 @@ def test_image_and_rules_questions_span_full_width(root: Path):
     assert 'class="q-card" data-q="Q2"' in html
     assert 'class="q-card wide" data-q="Q3"' in html
     assert "grid-template-columns: repeat(auto-fill, minmax(420px, 1fr))" in html
+
+
+def test_code_block_style_is_defined():
+    """<pre> はコードブロックとして描く(枠・背景・横スクロール)。中の <code> は行ごとの背景を持たない。"""
+    sys.path.insert(0, str(REPO))
+    import render
+    assert "pre { font-family: var(--mono)" in render.CSS and "overflow-x: auto" in render.CSS
+    assert "pre code { background: none" in render.CSS

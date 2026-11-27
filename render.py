@@ -87,6 +87,9 @@ body { background: var(--bg); color: var(--text); line-height: 1.7; font-family:
 :where(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 button:active:not([disabled]) { transform: translateY(1px); }
 code { font-family: var(--mono); font-size: 0.9em; background: var(--input); border-radius: 4px; padding: 1px 4px; color: var(--text); }
+/* コードブロック: <pre>(中に <code> を入れてもよい)。長い行は折り返さず、ブロックの中で横にスクロールする */
+pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 8px 0; max-width: 100%; overflow-x: auto; white-space: pre; tab-size: 2; }
+pre code { background: none; border-radius: 0; padding: 0; font-size: inherit; }
 .mono { font-family: var(--mono); }
 a { color: var(--review); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: currentColor; flex: none; }
