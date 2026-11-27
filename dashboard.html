@@ -70,10 +70,6 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
 .states .chip.on { background: var(--sel-bg); }
 .states .n { font-family: var(--mono); font-size: 20px; font-weight: 600; line-height: 1.2; }
 .states .l { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text); white-space: nowrap; }
-.kinds { display: flex; gap: 8px; flex-wrap: wrap; }
-.kinds .chip { font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; color: var(--sub); background: none; cursor: pointer; }
-.kinds .chip:hover { color: var(--text); background: var(--hover); }
-.kinds .chip.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
 #list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 2px 8px 12px; border-top: 1px solid var(--line); }
 .grp { display: flex; align-items: center; gap: 8px; padding: 12px 8px 4px; font-size: 12px; font-weight: 600; color: var(--sub); }
@@ -185,10 +181,6 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
         <button type="button" class="chip" data-v="done"><span class="n done" id="c-done">0</span><span class="l">完了</span></button>
       </div>
     </div>
-    <div>
-      <div class="lab">種類</div>
-      <div class="kinds" data-filter="kind" id="kinds"></div>
-    </div>
   </div>
   <div id="list"></div>
   <button type="button" class="archbtn" id="arch-toggle" hidden><span class="lead"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1" /> <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" /> <path d="M10 12h4" /></svg><span id="arch-count"></span></span><span id="arch-action"></span></button>
@@ -224,12 +216,11 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
   var STATES = ["waiting", "answered", "done"];
   var STATE_RANK = { waiting: 0, error: 0, answered: 1, done: 2 };
   var STATE_LABEL = { waiting: "回答待ち", answered: "AI精査中", done: "完了", error: "読めない" };
-  var UNSORTED_LABEL = "未分類";  // kind が無い題材。種類の意味はこのページでは決めない(出す側のスキルが宣言する)
 
   var $ = function (id) { return document.getElementById(id); };
   var els = {
     list: $("list"), frame: $("frame"), empty: $("empty"), notice: $("notice"),
-    project: $("project"), issue: $("issue"), q: $("q"), kinds: $("kinds"),
+    project: $("project"), issue: $("issue"), q: $("q"),
     foot: $("side-foot"), sideTime: $("side-time"), archToggle: $("arch-toggle"), archCount: $("arch-count"), archAction: $("arch-action"),
     topTitle: $("top-title"), topCount: $("top-count"), topState: $("top-state"), topMeta: $("top-meta"), topTime: $("top-time")
   };
@@ -247,7 +238,7 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
 
   // ---------------------------------------------------------------- フィルタの保存
   function defaultFilters() {
-    return { state: STATES.slice(), kindOff: [],  // kindOff = 隠す種類(新しい種類は自動で表示)
+    return { state: STATES.slice(),
              project: "", issue: "", q: "", archived: false };
   }
   function loadFilters() {
@@ -292,7 +283,6 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
   function visible(t) {
     if (t.archived && !filters.archived) return false;
     if (filters.state.indexOf(stateKey(t)) < 0) return false;
-    if (filters.kindOff.indexOf(t.kind || "") >= 0) return false;
     if (filters.project && (t.project || "") !== filters.project) return false;
     if (filters.issue !== "" && String(t.issue) !== String(filters.issue)) return false;
     if (filters.q) {
@@ -322,7 +312,7 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
     return iso.slice(5, 10).replace("-", "/");
   }
   // 一覧の 2 行目: 左にプロジェクト、右端に(題名に #N が無いときだけ)issue 番号とラウンド。
-  // 種類は種類のチップで絞り込めるので、項目には出さない
+  // 種類(kind)は画面に出さない(絞り込みも外した。データには残る)
   function hasIssueInTitle(t) {
     return t.issue !== null && t.issue !== undefined && (t.title || "").indexOf("#" + t.issue) !== -1;
   }
@@ -446,27 +436,6 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
     els.archCount.textContent = "アーカイブ済み " + archived + " 件";
     els.archAction.textContent = filters.archived ? "隠す" : "表示";
   }
-  function renderKinds() {
-    // プロジェクトを選んでいるときは、そのプロジェクトにある種類だけ出す
-    var seen = {};
-    topics.forEach(function (t) {
-      if (filters.project && (t.project || "") !== filters.project) return;
-      seen[t.kind || ""] = true;
-    });
-    var names = Object.keys(seen).sort(function (a, b) {
-      if (a === "" || b === "") return a === "" ? 1 : -1;  // 未分類は最後
-      return a.localeCompare(b, "ja");
-    });
-    var frag = document.createDocumentFragment();
-    names.forEach(function (n) {
-      var chip = el("button", "chip", n || UNSORTED_LABEL);
-      chip.type = "button";
-      chip.setAttribute("data-v", n);
-      chip.classList.toggle("on", filters.kindOff.indexOf(n) < 0);
-      frag.appendChild(chip);
-    });
-    els.kinds.replaceChildren(frag);
-  }
   function renderProjects() {
     var seen = {};
     topics.forEach(function (t) { if (t.project) seen[t.project] = true; });
@@ -519,7 +488,6 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
       pruneMaps();
       markFresh(prev);
       renderCounts(doc.counts || {});
-      renderKinds();
       renderProjects();
       renderList();
       syncFrame(prev);
@@ -613,17 +581,9 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
     filters.state = soloState() === v ? STATES.slice() : [v];  // 押すとその状態だけ。もう一度で全部
     saveFilters(); applyFilterUi(); renderList();
   });
-  els.kinds.addEventListener("click", function (e) {
-    var chip = e.target.closest(".chip");
-    if (!chip) return;
-    var v = chip.getAttribute("data-v");
-    var idx = filters.kindOff.indexOf(v);  // 種類チップは「隠す側」の一覧を持つ
-    filters.kindOff = idx >= 0 ? filters.kindOff.filter(function (x) { return x !== v; }) : filters.kindOff.concat([v]);
-    saveFilters(); renderKinds(); renderList();
-  });
   els.q.addEventListener("input", function () { filters.q = els.q.value.trim(); saveFilters(); renderList(); });
   els.issue.addEventListener("input", function () { filters.issue = els.issue.value.trim(); saveFilters(); renderList(); });
-  els.project.addEventListener("change", function () { filters.project = els.project.value; saveFilters(); renderKinds(); renderList(); });
+  els.project.addEventListener("change", function () { filters.project = els.project.value; saveFilters(); renderList(); });
   els.archToggle.addEventListener("click", function () { filters.archived = !filters.archived; saveFilters(); renderList(); });
   function toggleArchive(topic, archived) {
     fetch("/api/archive", {
