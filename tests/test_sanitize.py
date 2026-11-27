@@ -63,7 +63,7 @@ def test_dangerous_urls_are_dropped(href: str):
 @pytest.mark.parametrize(
     "style",
     ["background:url(javascript:x)", "width:expression(alert(1))", "background:\\75rl(http://e.test/x)",
-     "position:fixed;inset:0", "position: sticky", "background-image:image-set('x.png' 1x)", "-moz-binding:x"],
+     "position:fixed;inset:0", "position:/**/fixed", "position:fi/**/xed;top:0", "position: sticky", "background-image:image-set('x.png' 1x)", "-moz-binding:x"],
 )
 def test_dangerous_style_is_dropped(style: str):
     assert safe_html(f'<div style="{style}">t</div>') == "<div>t</div>"

@@ -7,7 +7,7 @@
 - 許可しないタグ(script / iframe / style など)… 文字として表示
 - on○○ などの許可しない属性 … 落とす
 - href / src … http(s)・相対パス・# だけ。javascript: / data: / // で始まるものなどは属性ごと落とす
-- style … 外部の読み込み(url( など)・CSS エスケープ(バックスラッシュ)・画面への固定(position:fixed / sticky)を
+- style … 外部の読み込み(url( など)・CSS エスケープ(バックスラッシュ)・CSS コメント(/*)・画面への固定(position:fixed / sticky)を
   含むものは属性ごと落とす。position:absolute は使えるが、render.py 側で質問カードなどの枠の外に
   はみ出さないようにしている
 - target 付きのリンク … rel="noopener noreferrer" を強制する
@@ -16,6 +16,7 @@
 
 限界: `a<b and c>d` のように「<」の直後が許可タグ名だと、そのタグとして解釈される。
 文中で < を使うときは &lt; と書く。
+閉じていない `<b` のような書きかけのタグが末尾にあると、その部分は表示されない。
 """
 from __future__ import annotations
 
@@ -40,7 +41,7 @@ SCHEME_RE = re.compile(r"^([a-z][a-z0-9+.\-]*):")
 # 制御文字・空白(java\tscript: のような分断を詰めてからスキームを判定する)
 IGNORABLE_RE = re.compile(r"[\x00-\x20\x7f]+")
 DANGEROUS_STYLE_RE = re.compile(
-    r"javascript:|expression\s*\(|url\s*\(|image-set|@import|\\|behavior|binding"
+    r"javascript:|expression\s*\(|url\s*\(|image-set|@import|\\|/\*|behavior|binding"
     r"|position\s*:\s*(?:fixed|sticky)",
     re.IGNORECASE,
 )
