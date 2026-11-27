@@ -173,3 +173,142 @@ def test_handler_bug_gives_500_not_400(base: str, monkeypatch):
     monkeypatch.setattr(server.Handler, "_post_archive", boom)
     status, _, _ = post(base + "/api/archive", {"topic": "a", "archived": True})
     assert status == 500
+
+
+# ---------------------------------------------------------------- 各問のチャット
+
+def test_chat_post_then_get(base: str, root: Path):
+    status, _, body = post(f"{base}/api/chat", {"topic": "c1", "q": "Q2", "text": "B の欠点は?"})
+    assert status == 200 and json.loads(body)["message"]["from"] == "user"
+    status, headers, body = get(f"{base}/api/chat?topic=c1")
+    doc = json.loads(body)
+    assert status == 200 and headers["Cache-Control"] == "no-store"
+    assert [(m["q"], m["from"], m["text"]) for m in doc["messages"]] == [("Q2", "user", "B の欠点は?")]
+
+
+def test_chat_post_cannot_impersonate_ai(base: str, root: Path):
+    post(f"{base}/api/chat", {"topic": "c2", "q": "Q1", "text": "hi", "from": "ai"})
+    _, _, body = get(f"{base}/api/chat?topic=c2")
+    assert json.loads(body)["messages"][0]["from"] == "user"
+
+
+@pytest.mark.parametrize("doc", [
+    {"topic": "c3", "q": "Q1", "text": ""},
+    {"topic": "c3", "q": "Q 1", "text": "x"},
+    {"topic": "../x", "q": "Q1", "text": "x"},
+    {"q": "Q1", "text": "x"},
+])
+def test_chat_post_rejects_bad_input(base: str, doc: dict):
+    status, _, _ = post(f"{base}/api/chat", doc)
+    assert status == 400
+
+
+def test_chat_get_unknown_topic_is_empty(base: str):
+    _, _, body = get(f"{base}/api/chat?topic=none")
+    assert json.loads(body) == {"messages": []}
+
+
+def test_chat_get_bad_topic_is_400(base: str):
+    try:
+        get(f"{base}/api/chat?topic=..%2Fx")
+        raise AssertionError("expected 400")
+    except urllib.error.HTTPError as err:
+        assert err.code == 400
+
+
+# ---------------------------------------------------------------- ui-comments の中継
+
+@pytest.fixture
+def upstream(monkeypatch):
+    """ui-comments の専用サーバーの代わり。受けた要求を記録して JSON を返す。"""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    seen: list[dict] = []
+
+    class Fake(BaseHTTPRequestHandler):
+        def _reply(self):
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length).decode() if length else ""
+            seen.append({"method": self.command, "path": self.path, "body": body,
+                         "host": self.headers.get("Host"), "origin": self.headers.get("Origin")})
+            if self.path == "/overlay.js":
+                data, ctype = b"/* overlay */", "text/javascript; charset=utf-8"
+            else:
+                data, ctype = json.dumps({"threads": []}).encode(), "application/json; charset=utf-8"
+            self.send_response(201 if self.command == "POST" else 200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        do_GET = do_POST = do_PATCH = do_DELETE = _reply
+
+        def log_message(self, *args):
+            pass
+
+    httpd = HTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    monkeypatch.setattr(server, "UI_COMMENTS_PORT", httpd.server_address[1])
+    monkeypatch.setattr(server, "UI_COMMENTS", True)
+    yield seen
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def test_ui_comments_overlay_is_proxied(base: str, upstream: list):
+    status, headers, body = get(f"{base}/ui-comments/overlay.js")
+    assert status == 200 and body == b"/* overlay */"
+    assert headers["Content-Type"].startswith("text/javascript")
+    assert upstream[-1]["path"] == "/overlay.js"
+
+
+def test_ui_comments_api_is_proxied_with_body(base: str, upstream: list):
+    status, _, body = post(f"{base}/api/threads", {"text": "ここを右へ"})
+    assert status == 201 and json.loads(body) == {"threads": []}
+    last = upstream[-1]
+    assert last["method"] == "POST" and last["path"] == "/api/threads"
+    assert json.loads(last["body"]) == {"text": "ここを右へ"}
+    assert last["host"].startswith("127.0.0.1") and last["origin"] is None  # 専用サーバーの名前の確認を通す
+
+
+def test_ui_comments_patch_and_delete_are_proxied(base: str, upstream: list):
+    for method in ("PATCH", "DELETE"):
+        req = urllib.request.Request(f"{base}/api/threads/t1/messages/m1", data=b"{}" if method == "PATCH" else None,
+                                     method=method, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            assert res.status == 200
+        assert upstream[-1]["method"] == method and upstream[-1]["path"] == "/api/threads/t1/messages/m1"
+
+
+def test_ui_comments_down_gives_502(base: str, monkeypatch):
+    import socket
+    with socket.socket() as s:  # 空いている番号を取ってすぐ閉じる = 何も待ち受けていない番号
+        s.bind(("127.0.0.1", 0))
+        free = s.getsockname()[1]
+    monkeypatch.setattr(server, "UI_COMMENTS_PORT", free)
+    monkeypatch.setattr(server, "UI_COMMENTS", True)
+    try:
+        get(f"{base}/ui-comments/overlay.js")
+        raise AssertionError("expected 502")
+    except urllib.error.HTTPError as err:
+        assert err.code == 502
+
+
+# ---------------------------------------------------------------- ui-comments の入り切り(お試し用のサーバーだけ入れる)
+
+def test_ui_comments_off_by_default(base: str, root: Path):
+    (root / "grill-a.html").write_text("<html><body>sheet</body></html>", encoding="utf-8")
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        get(f"{base}/ui-comments/overlay.js")
+    assert exc.value.code == 404
+    assert b"overlay.js" not in get(f"{base}/")[2]
+    assert b"overlay.js" not in get(f"{base}/grill-a.html")[2]
+
+
+def test_ui_comments_on_injects_overlay(base: str, root: Path, monkeypatch):
+    monkeypatch.setattr(server, "UI_COMMENTS", True)
+    (root / "grill-a.html").write_text("<html><body>sheet</body></html>", encoding="utf-8")
+    dash = get(f"{base}/")[2]
+    sheet = get(f"{base}/grill-a.html")[2]
+    assert b'data-project="grill-dashboard"' in dash
+    assert b'data-project="grill-sheet"' in sheet
+    assert sheet.index(b"overlay.js") < sheet.index(b"</body>")

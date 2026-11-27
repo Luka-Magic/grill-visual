@@ -44,6 +44,7 @@ class TopicState:
     state: State
     open_round: int | None
     round_count: int
+    question_count: int   # 今のラウンド(無ければ問いのある最後のラウンド)の問いの数
     updated_at: str
     version: str          # データ JSON の mtime(ns)。統合ページが「内容が変わったか」を見るのに使う
     html_exists: bool
@@ -205,6 +206,18 @@ def _updated_at(data_path: Path, root: Path, topic: str, open_round: int | None)
     return _fmt(max(stamps))
 
 
+def question_count(rounds: list, open_round: int | None) -> int:
+    """今のラウンドの問いの数。今のラウンドが無ければ、問いのある最後のラウンドの数。"""
+    def count(r: object) -> int:
+        qs = r.get("questions") if isinstance(r, dict) else None
+        return len(qs) if isinstance(qs, list) else 0
+    if open_round is not None:
+        for r in rounds:
+            if isinstance(r, dict) and r.get("round") == open_round:
+                return count(r)
+    return next((count(r) for r in reversed(rounds) if count(r)), 0)
+
+
 def _error_state(path: Path, archived: dict[str, str], message: str) -> TopicState:
     try:
         st = path.stat()
@@ -213,7 +226,7 @@ def _error_state(path: Path, archived: dict[str, str], message: str) -> TopicSta
         updated_at, version = "", "0"
     return TopicState(
         topic=path.stem, title=path.name, kind=None, project=None, issue=None,
-        state="error", open_round=None, round_count=0, updated_at=updated_at, version=version,
+        state="error", open_round=None, round_count=0, question_count=0, updated_at=updated_at, version=version,
         html_exists=(path.parent.parent / f"grill-{path.stem}.html").exists(),
         archived=path.stem in archived, error=message,
     )
@@ -239,6 +252,7 @@ def topic_state(path: Path, root: Path, archived: dict[str, str], prefixes: dict
         topic=topic, title=title, kind=detect_kind(topic, data, prefixes),
         project=detect_project(topic, data, prefixes), issue=detect_issue(topic, title, data),
         state=st, open_round=open_round, round_count=len(rounds),
+        question_count=question_count(rounds, open_round),
         updated_at=_updated_at(path, root, topic, open_round),
         version=str(path.stat().st_mtime_ns),
         html_exists=(root / f"grill-{topic}.html").exists(),
