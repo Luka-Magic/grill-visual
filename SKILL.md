@@ -119,6 +119,17 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
 - 質問票の再読み込みは、送信後に AI が次ラウンドを出したとき・見ていた題材が新たに待ちになったときだけ自動。
   それ以外の更新は上部に「再読み込み」を出すだけ(入力中の内容を消さない)
 
+## 画面へのコメント(ui-comments)
+
+統合ページと質問票の右下(統合ページは左下)に、画面の要素を指してコメントを書くボタンが出る。
+grill-visual 自体の UI を直すための道具で、質問票への回答とは別物。
+
+- 専用サーバーは `serve.sh` が 127.0.0.1:4320 で起動する(道具 `~/.claude/skills/ui-comments/src/` があるときだけ)。
+  画面からの通信は `server.py` が中継するので、質問票と同じ URL のまま使える
+- コメントの保存先はこのリポジトリの `.ui-comments/`(git に入れない)
+- 読む・返事をするのは ui-comments スキルの手順で、`--dir` にこのリポジトリの `.ui-comments` を渡す:
+  `node ~/.claude/skills/ui-comments/src/cli.mjs list --dir ~/ai_agent/grill-visual/.ui-comments`
+
 ## 構成ファイル
 
 - `render.py` — driver(Python3 標準ライブラリのみ)。テンプレート・CSS・JS を内蔵

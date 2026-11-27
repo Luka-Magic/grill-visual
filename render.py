@@ -55,6 +55,9 @@ from state import resolve_root  # noqa: E402  (同じディレクトリの state
 
 OUT_DIR = resolve_root()
 DEFAULT_DASHBOARD_ROOT = "http://localhost:8787/"
+# 画面の要素を指してコメントする道具(ui-comments)。server.py が専用サーバーへ中継する。
+# 専用サーバーが動いていなければ読み込みに失敗するだけで、質問票は普通に動く
+UI_COMMENTS_TAG = '<script src="/ui-comments/overlay.js" data-project="grill-sheet" defer></script>'
 FONTS_URL = (
     "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700"
     "&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
@@ -1028,6 +1031,7 @@ def main() -> None:
 {answer_bar}
 <div id="lightbox"><img src="" alt=""></div>
 <script>{JS.replace("__CONFIG__", json.dumps(config, ensure_ascii=False))}</script>
+{UI_COMMENTS_TAG}
 </body>
 </html>
 """

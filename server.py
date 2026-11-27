@@ -10,6 +10,8 @@ POST /api/archive     … {"topic": str, "archived": bool} を .grill-dashboard.
 GET  /api/chat?topic= … その題材の各問のチャット({"messages": [...]})
 POST /api/chat        … {"topic": str, "q": "Q3", "text": str} をユーザーの発言として追記
                         (AI は chat.py watch で受け取り、chat.py reply で返事を書く)
+GET  /ui-comments/overlay.js、/api/threads… … ui-comments の専用サーバー(127.0.0.1:GRILL_UI_COMMENTS_PORT、
+                        既定 4320)への中継。画面の要素を指してコメントする道具を、同じ URL のまま使うため
 
 環境変数(テスト用。通常は未設定でよい):
   GRILL_ROOT … 配信ルート(既定 ~/.agent/diagrams)
@@ -18,6 +20,7 @@ POST /api/chat        … {"topic": str, "q": "Q3", "text": str} をユーザー
 from __future__ import annotations
 
 import functools
+import http.client
 import json
 import os
 import sys
@@ -38,6 +41,8 @@ DASHBOARD = SKILL_DIR / "dashboard.html"
 MAX_BODY_BYTES = 1_000_000
 DRAIN_LIMIT_BYTES = 8 * MAX_BODY_BYTES  # 大きすぎる本文は読み捨ててから 400 を返す(この上限を超えたら切る)
 NO_STORE = "no-store"
+UI_COMMENTS_PORT = int(os.environ.get("GRILL_UI_COMMENTS_PORT", "4320"))
+UI_COMMENTS_PREFIXES = ("/api/threads",)
 
 _ARCHIVE_LOCK = threading.Lock()
 
@@ -87,9 +92,39 @@ class Handler(SimpleHTTPRequestHandler):
 
     # ---------------------------------------------------------------- GET / HEAD
 
+    def _is_ui_comments(self, path: str) -> bool:
+        return path == "/ui-comments/overlay.js" or any(
+            path == p or path.startswith(p + "/") for p in UI_COMMENTS_PREFIXES
+        )
+
+    def _proxy_ui_comments(self, path: str) -> None:
+        """ui-comments の専用サーバーへそのまま渡す。Host は 127.0.0.1、Origin は渡さない
+        (同じ URL から来た要求なので、専用サーバーの名前の確認はループバックとして通す)。"""
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length > MAX_BODY_BYTES:
+            self._discard_body(length)
+            self.send_error(413)
+            return
+        body = self.rfile.read(length) if length else None
+        target = "/overlay.js" if path == "/ui-comments/overlay.js" else self.path
+        headers = {"Content-Type": self.headers.get("Content-Type", "application/json")} if body is not None else {}
+        conn = http.client.HTTPConnection("127.0.0.1", UI_COMMENTS_PORT, timeout=10)
+        try:
+            conn.request(self.command, target, body=body, headers=headers)
+            res = conn.getresponse()
+            data = res.read()
+        except OSError:
+            self.send_error(502, "ui-comments server is not running")
+            return
+        finally:
+            conn.close()
+        self._send_bytes(data, res.getheader("Content-Type", "application/octet-stream"), res.status)
+
     def _route_get(self, path: str) -> bool:
         """自前のルートなら応答して True。静的配信に任せるなら False。"""
-        if path in ("/", "/index.html"):
+        if self._is_ui_comments(path):
+            self._proxy_ui_comments(path)
+        elif path in ("/", "/index.html"):
             self._send_dashboard()
         elif path == "/api/state":
             self._send_json(state.snapshot_to_dict(state.scan(self.root)))
@@ -130,8 +165,21 @@ class Handler(SimpleHTTPRequestHandler):
 
     # ---------------------------------------------------------------- POST
 
+    def do_PATCH(self) -> None:
+        path = self.path.split("?", 1)[0]
+        if self._is_ui_comments(path):
+            self._proxy_ui_comments(path)
+        else:
+            self.send_error(405)
+
+    def do_DELETE(self) -> None:
+        self.do_PATCH()
+
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
+        if self._is_ui_comments(path):
+            self._proxy_ui_comments(path)
+            return
         handlers = {"/submit": self._post_submit, "/api/archive": self._post_archive, "/api/chat": self._post_chat}
         handler = handlers.get(path)
         if handler is None:

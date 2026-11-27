@@ -548,5 +548,16 @@ button, input, select { font: inherit; color: inherit; }
   fetchState();
 })();
 </script>
+<script>
+  // ui-comments のボタンを左下に置く(質問票の iframe の中にも同じボタンがあり、右下で重なるため)。
+  // 一度ドラッグして動かしたら、その位置が優先される
+  try {
+    var key = "ui-comments:" + location.origin + ":grill-dashboard:pos";
+    if (localStorage.getItem(key) === null) {
+      localStorage.setItem(key, JSON.stringify({ x: 16, y: Math.max(0, innerHeight - 150) }));
+    }
+  } catch (e) { /* 保存できなければ既定の位置 */ }
+</script>
+<script src="/ui-comments/overlay.js" data-project="grill-dashboard" defer></script>
 </body>
 </html>

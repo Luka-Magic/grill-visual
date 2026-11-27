@@ -20,8 +20,22 @@ if [ "${1:-}" = "--restart" ]; then
 fi
 
 # 既に自分のサーバーが動いているか(マーカーファイルの配信可否で判定)
+# ui-comments(画面の要素を指してコメントする道具)の専用サーバー。道具があるときだけ起動する(冪等)
+UIC_PORT="${GRILL_UI_COMMENTS_PORT:-4320}"
+UIC_SRC="$HOME/.claude/skills/ui-comments/src/server.mjs"
+UIC_DIR="$(dirname "$(readlink -f "$0")")/.ui-comments"
+start_ui_comments() {
+  [ -f "$UIC_SRC" ] && command -v node >/dev/null || return 0
+  if timeout 2 curl -fsS -o /dev/null "http://127.0.0.1:$UIC_PORT/overlay.js" 2>/dev/null; then return 0; fi
+  # 道具は「直接実行されたか」を実ファイルのパスで判定するので、リンクを解決してから渡す
+  setsid nohup node "$(readlink -f "$UIC_SRC")" --dir "$UIC_DIR" --port "$UIC_PORT" >"$DIR/.ui-comments.log" 2>&1 < /dev/null &
+  sleep 0.5
+  echo "started: ui-comments http://127.0.0.1:$UIC_PORT/(コメントの保存先 $UIC_DIR)"
+}
+
 if timeout 3 curl -fsS -o /dev/null "http://127.0.0.1:$PORT/$MARKER" 2>/dev/null; then
   echo "already running: 統合ページ http://localhost:$PORT/"
+  start_ui_comments
   exit 0
 fi
 
@@ -31,6 +45,7 @@ if timeout 3 curl -fsS -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
   exit 1
 fi
 
+start_ui_comments
 GRILL_PORT="$PORT" setsid nohup python3 "$HOME/.claude/skills/grill-visual/server.py" \
   >"$DIR/.server.log" 2>&1 < /dev/null &
 sleep 1
