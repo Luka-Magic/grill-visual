@@ -646,22 +646,5 @@ button:disabled { cursor: not-allowed; color: var(--mute); }
   fetchState();
 })();
 </script>
-<script>
-  // ui-comments のボタンの初期位置。質問票の iframe の中にも同じボタンが右下にあるので、
-  // 広い画面では上のバーの空き(更新時刻の左)、狭い画面では左下に置く。
-  // 一覧に重なっていた旧い初期位置(v1)は一度だけ置き直す。ドラッグで動かした位置はそのまま使われる
-  try {
-    var key = "ui-comments:" + location.origin + ":grill-dashboard:pos";
-    var seeded = key + ":seed";
-    if (localStorage.getItem(seeded) !== "v2") {
-      var pos = innerWidth >= 760
-        ? { x: Math.max(0, innerWidth - 300), y: 0 }
-        : { x: 16, y: Math.max(0, innerHeight - 150) };
-      localStorage.setItem(key, JSON.stringify(pos));
-      localStorage.setItem(seeded, "v2");
-    }
-  } catch (e) { /* 保存できなければ既定の位置 */ }
-</script>
-<script src="/ui-comments/overlay.js" data-project="grill-dashboard" defer></script>
 </body>
 </html>

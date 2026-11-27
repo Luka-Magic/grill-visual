@@ -119,16 +119,18 @@ description: grill(計画の問い詰めインタビュー)をタブ式のダー
 - 質問票の再読み込みは、送信後に AI が次ラウンドを出したとき・見ていた題材が新たに待ちになったときだけ自動。
   それ以外の更新は上部に「再読み込み」を出すだけ(入力中の内容を消さない)
 
-## 画面へのコメント(ui-comments)
+## 画面へのコメント(ui-comments、お試し用だけ)
 
-統合ページと質問票の右下(統合ページは左下)に、画面の要素を指してコメントを書くボタンが出る。
-grill-visual 自体の UI を直すための道具で、質問票への回答とは別物。
+grill-visual 自体の見た目を直す間だけ使う。普段使いのサーバー(`serve.sh`、8787)には入れない。
 
-- 専用サーバーは `serve.sh` が 127.0.0.1:4320 で起動する(道具 `~/.claude/skills/ui-comments/src/` があるときだけ)。
-  画面からの通信は `server.py` が中継するので、質問票と同じ URL のまま使える
-- コメントの保存先はこのリポジトリの `.ui-comments/`(git に入れない)
-- 読む・返事をするのは ui-comments スキルの手順で、`--dir` にこのリポジトリの `.ui-comments` を渡す:
+- お試し用のサーバーは `trial.sh` で起動する。配信ルートは `~/.agent/diagrams-trial`、ポートは 127.0.0.1:8791、
+  tailnet では `http://sata.tail82be3a.ts.net:8382/`。`trial.sh --stop` で止める
+- お試し用のサーバーは、統合ページと質問票に、画面の要素を指してコメントを書くボタンを差し込む
+  (`GRILL_UI_COMMENTS=1`)。質問票への回答とは別物
+- お試し用の質問票を描くときは `GRILL_ROOT=~/.agent/diagrams-trial` を付けて render.py と chat.py を動かす
+- コメントの保存先はこのリポジトリの `.ui-comments/`(git に入れない)。読む・返事をするのは ui-comments スキルの手順:
   `node ~/.claude/skills/ui-comments/src/cli.mjs list --dir ~/ai_agent/grill-visual/.ui-comments`
+- 見た目が直ったら `trial.sh --stop` で止め、`tailscale serve --http=8382 off` で中継も外す
 
 ## 構成ファイル
 
@@ -140,7 +142,7 @@ grill-visual 自体の UI を直すための道具で、質問票への回答と
 - `chat.py` — 各問のチャットの保存(`chat/<topic>.jsonl`)と、AI 側の CLI(`watch` / `reply`)
 - `docs/design/2026-11-27-design-v2.md` — 画面の設計(色・書体・配置の仕様。render.py と dashboard.html はこれに従う)
 - `serve.sh` — サーバーの冪等起動(ポート衝突・二重起動を検知)。`server.py` や `chat.py` を直したら
-  `serve.sh --restart` で起動し直す(`render.py`・`dashboard.html` の変更は再起動なしで反映される)
+  `serve.sh --restart`(お試し用は `trial.sh --restart`)で起動し直す(`render.py`・`dashboard.html` の変更は再起動なしで反映される)
 - `tests/` — `uvx pytest -q tests`(state / server / render)
 
 ## トラブルシューティング(実際に踏んだもの)

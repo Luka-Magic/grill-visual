@@ -248,6 +248,7 @@ def upstream(monkeypatch):
     httpd = HTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     monkeypatch.setattr(server, "UI_COMMENTS_PORT", httpd.server_address[1])
+    monkeypatch.setattr(server, "UI_COMMENTS", True)
     yield seen
     httpd.shutdown()
     httpd.server_close()
@@ -284,8 +285,30 @@ def test_ui_comments_down_gives_502(base: str, monkeypatch):
         s.bind(("127.0.0.1", 0))
         free = s.getsockname()[1]
     monkeypatch.setattr(server, "UI_COMMENTS_PORT", free)
+    monkeypatch.setattr(server, "UI_COMMENTS", True)
     try:
         get(f"{base}/ui-comments/overlay.js")
         raise AssertionError("expected 502")
     except urllib.error.HTTPError as err:
         assert err.code == 502
+
+
+# ---------------------------------------------------------------- ui-comments の入り切り(お試し用のサーバーだけ入れる)
+
+def test_ui_comments_off_by_default(base: str, root: Path):
+    (root / "grill-a.html").write_text("<html><body>sheet</body></html>", encoding="utf-8")
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        get(f"{base}/ui-comments/overlay.js")
+    assert exc.value.code == 404
+    assert b"overlay.js" not in get(f"{base}/")[2]
+    assert b"overlay.js" not in get(f"{base}/grill-a.html")[2]
+
+
+def test_ui_comments_on_injects_overlay(base: str, root: Path, monkeypatch):
+    monkeypatch.setattr(server, "UI_COMMENTS", True)
+    (root / "grill-a.html").write_text("<html><body>sheet</body></html>", encoding="utf-8")
+    dash = get(f"{base}/")[2]
+    sheet = get(f"{base}/grill-a.html")[2]
+    assert b'data-project="grill-dashboard"' in dash
+    assert b'data-project="grill-sheet"' in sheet
+    assert sheet.index(b"overlay.js") < sheet.index(b"</body>")
